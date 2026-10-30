@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"        # tilpass til stacken
+    directory: "/{{MAPPE_1}}"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7   # vent på nylig publiserte versjoner (beskyttelse mot ondsinnede utgivelser)
+  - package-ecosystem: "npm"        # fjern blokken hvis ingen mappe 2
+    directory: "/{{MAPPE_2}}"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7

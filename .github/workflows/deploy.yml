@@ -1,0 +1,185 @@
+# Utrulling til GitHub Pages. Generert fra .claude/skills/nytt-prosjekt/maler/deploy.yml.mal.
+#
+# Flyt:
+#   1. Merge til main. CI kjører. Når CI er grønn bygges ÉN artefakt og kjøres gjennom staging (automatisk).
+#   2. Produksjon starter KUN når eier pusher en tag `v*` (via /slipp-til-produksjon). En vanlig merge
+#      lager derfor aldri en ventende produksjonskjøring.
+#   3. Produksjon bruker SAMME artefakt som ble bygget og testet i steg 1. Den bygges aldri på nytt.
+#      Jobben feiler (fail closed) hvis artefakten eller beviset for grønn staging mangler, ikke stemmer,
+#      eller ikke kommer fra deploy.yml i dette repoet utløst av grønn CI på main.
+#   4. Produksjonsjobben stopper på `environment: production` til en reviewer har godkjent.
+#
+# Før dette virker i GitHub (gjøres manuelt av eier, se scripts/sjekk-github-oppsett.sh):
+#   - Miljøene `staging` og `production` er opprettet (Settings -> Environments -> New environment).
+#   - `production`: Required reviewers, «Allow administrators to bypass» av, og Deployment branches and tags
+#     tillater BÅDE branch `main` OG tag `v*` (uten tag-regelen avvises produksjonsjobben).
+#   - Pages Source = GitHub Actions.
+#   - Variabelen PRODUKSJON_GODKJENNING_VERIFISERT settes først etter at «Sperretest produksjon» har vist
+#     «Waiting for review». Variabelen skal ikke finnes når workflowen tas i bruk.
+#
+# Hver action er festet til sin EGEN fullstendige commit-SHA, med utgivelsen som kommentar.
+# Staging: GitHub Pages har bare ett nettsted per repo, så staging er her en røyktest av artefakten i runneren.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bygg:
+    # Bare etter grønn CI på en push til main i dette repoet (aldri for PR-er eller forks).
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      digest: ${{ steps.pakk.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1   # v7.1.0
+        with:
+          node-version: 24
+      - run: npm ci   # installasjonsskript blokkeres av app/.npmrc
+        working-directory: app
+      - run: npm run build
+        working-directory: app
+      - id: pakk
+        run: |
+          mkdir -p "$RUNNER_TEMP/ut"
+          tar -czf "$RUNNER_TEMP/ut/artefakt.tgz" -C "app/dist" .
+          (cd "$RUNNER_TEMP/ut" && sha256sum artefakt.tgz | cut -d' ' -f1 > artefakt.sha256)
+          echo "digest=$(cat "$RUNNER_TEMP/ut/artefakt.sha256")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
+        with:
+          name: artefakt-${{ github.event.workflow_run.head_sha }}
+          path: ${{ runner.temp }}/ut/
+          retention-days: 90
+          if-no-files-found: error
+
+  staging:
+    needs: bygg
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2
+        with:
+          name: artefakt-${{ github.event.workflow_run.head_sha }}
+          path: ${{ runner.temp }}/inn
+      - name: Kontroller digest
+        env:
+          FORVENTET: ${{ needs.bygg.outputs.digest }}
+        run: |
+          faktisk=$(sha256sum "$RUNNER_TEMP/inn/artefakt.tgz" | cut -d' ' -f1)
+          test "$faktisk" = "$FORVENTET"
+      - name: Røyktest av artefakten
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          tar -xzf "$RUNNER_TEMP/inn/artefakt.tgz" -C "$RUNNER_TEMP/site"
+          python3 -m http.server 8080 --bind 127.0.0.1 --directory "$RUNNER_TEMP/site" > /dev/null 2>&1 &
+          curl --fail --silent --show-error --retry 5 --retry-connrefused --retry-delay 1 -o "$RUNNER_TEMP/index.html" http://127.0.0.1:8080/
+          grep -qF '<title>Treningsdagbok</title>' "$RUNNER_TEMP/index.html"
+          grep -qF 'http-equiv="Content-Security-Policy"' "$RUNNER_TEMP/index.html"
+      - name: Registrer at staging er bestått
+        env:
+          DIGEST: ${{ needs.bygg.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ok"
+          echo "$DIGEST" > "$RUNNER_TEMP/ok/staging-ok.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
+        with:
+          name: staging-ok-${{ github.event.workflow_run.head_sha }}
+          path: ${{ runner.temp }}/ok/
+          retention-days: 90
+          if-no-files-found: error
+
+  produksjon:
+    # Fail closed: kjører bare for en tag, og bare når eier har bevist sperren og satt variabelen.
+    if: github.event_name == 'push' && github.ref_type == 'tag' && vars.PRODUKSJON_GODKJENNING_VERIFISERT == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: ${{ steps.utrulling.outputs.page_url }}
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Taggen må ligge på main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Finn kjøringen som bygde og testet denne commiten
+        id: finn
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_ID: ${{ github.repository_id }}
+        run: |
+          # Navnet alene er ikke nok: en PR fra en fork kan laste opp artefakter med samme navn.
+          # Godta bare artefakter fra deploy.yml i dette repoet, utløst av grønn CI på main,
+          # og krev at artefakten og staging-beviset kommer fra SAMME kjøring.
+          kandidater() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$1-$GITHUB_SHA&per_page=100" \
+              --jq ".artifacts[] | select(.expired == false and (.workflow_run.head_repository_id | tostring) == \"$REPO_ID\" and .workflow_run.head_branch == \"main\") | .workflow_run.id"
+          }
+          staging_ok=$(kandidater staging-ok | sort -u)
+          run_id=""
+          for id in $(kandidater artefakt | sort -u); do
+            printf '%s\n' "$staging_ok" | grep -qx "$id" || continue
+            info=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq '[.path, .event, .head_branch, (.head_repository.id | tostring), .conclusion] | join(" ")')
+            if [ "$info" = ".github/workflows/deploy.yml workflow_run main $REPO_ID success" ]; then
+              run_id="$id"
+              break
+            fi
+          done
+          if [ -z "$run_id" ]; then
+            echo "Fant ingen godkjent deploy-kjøring med artefakt og grønn staging for $GITHUB_SHA. Staging må være grønn på denne commiten før taggen settes."
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2
+        with:
+          name: artefakt-${{ github.sha }}
+          run-id: ${{ steps.finn.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/artefakt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2
+        with:
+          name: staging-ok-${{ github.sha }}
+          run-id: ${{ steps.finn.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/staging-ok
+      - name: Kontroller at artefakten er den som ble testet i staging
+        run: |
+          faktisk=$(sha256sum "$RUNNER_TEMP/artefakt/artefakt.tgz" | cut -d' ' -f1)
+          skrevet=$(cat "$RUNNER_TEMP/artefakt/artefakt.sha256")
+          staging=$(cat "$RUNNER_TEMP/staging-ok/staging-ok.sha256")
+          test "$faktisk" = "$skrevet"
+          test "$faktisk" = "$staging"
+      - name: Pakk ut
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          tar -xzf "$RUNNER_TEMP/artefakt/artefakt.tgz" -C "$RUNNER_TEMP/site"
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d   # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9   # v5.0.0
+        with:
+          path: ${{ runner.temp }}/site
+      - id: utrulling
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346   # v5.0.1

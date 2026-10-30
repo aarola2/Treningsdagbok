@@ -1,0 +1,17 @@
+# Sperretest for produksjonsmiljøet. Deployer ingenting.
+# Brukes én gang for å bevise at miljøet `production` stopper på «Waiting for review» før variabelen
+# PRODUKSJON_GODKJENNING_VERIFISERT settes. Miljøet `production` må være opprettet manuelt FØRST
+# (GitHub oppretter ikke et miljø før en jobb som bruker det faktisk har kjørt, og en hoppet over jobb teller ikke).
+name: Sperretest produksjon
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sperretest:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo "Sperren slapp denne jobben gjennom. Det skal bare skje etter at en reviewer har godkjent."

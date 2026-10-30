@@ -1,0 +1,122 @@
+# CI for Treningsdagbok. Generert fra .claude/skills/nytt-prosjekt/maler/ci.yml.mal.
+# Alle jobber skal bli "required status checks" i rulesettet etter første kjøring. En jobb som ikke er påkrevd,
+# beskytter ingenting og ingenting varsler om det. Kjør `bash scripts/sjekk-github-oppsett.sh` etter første kjøring
+# og etter hver ny eller endret jobb.
+# Hver action er festet til sin EGEN fullstendige commit-SHA fra en gjennomgått utgivelse (utgivelsen som kommentar).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  kontroll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mappe: [app]
+    defaults:
+      run:
+        working-directory: ${{ matrix.mappe }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1   # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.mappe }}/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test -- --coverage   # dekningsgrense står i vite.config.ts
+      - run: npm run build
+      - name: Ingen hoppede eller isolerte tester
+        run: |
+          if grep -rEn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=coverage -e '\b(test|it|describe)\.(skip|only|fixme|todo)\b' -e '(^|[^.A-Za-z0-9_])(xit|xdescribe|fit|fdescribe)\(' -e '\.(skipIf|runIf)\(' .; then
+            echo "Fant hoppede eller isolerte tester (linjene over). Fjern dem."
+            exit 1
+          fi
+
+  avhengigheter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1   # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci   # installasjonsskript blokkeres av app/.npmrc
+      - run: npm audit --audit-level=high
+      - run: npm audit signatures
+
+  hemmeligheter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e   # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1   # eksakt binærversjon, aldri "latest"
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"   # offentlig repo: ingen SARIF-artefakt
+
+  kodeanalyse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370   # v4.39.1
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370   # v4.39.1
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1   # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm run e2e:install -- --with-deps   # playwright install chromium
+      - run: npm run e2e          # webServer i playwright.config.ts starter PRODUKSJONSBYGGET (ikke dev-server)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
+        if: always()
+        with:
+          name: playwright-rapport
+          path: |
+            app/playwright-report/
+            app/test-results/
+          retention-days: 14
