@@ -1,0 +1,129 @@
+# Mal for CI. /nytt-prosjekt fyller inn mapper og kommandoer fra CLAUDE.md.
+# Alle jobber skal bli "required status checks" i rulesettet etter første kjøring. En jobb som ikke er påkrevd,
+# beskytter ingenting og ingenting varsler om det. Kjør `bash scripts/sjekk-github-oppsett.sh` etter første kjøring
+# og etter hver ny eller endret jobb.
+# Hver action festes til sin EGEN fullstendige commit-SHA (40 tegn) fra en gjennomgått utgivelse.
+# Plassholderne {{SHA_...}} er ulike fordi actionene er ulike; bruk aldri samme SHA på to forskjellige actions.
+# Skriv utgivelsen som kommentar etter SHA-en, for eksempel `# v4.2.2`. Init og analyze i CodeQL deler SHA.
+# Hent SHA med `git ls-remote --tags https://github.com/<eier>/<action>`; for annoterte tagger brukes linjen med `^{}`.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  kontroll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mappe: [{{MAPPE_1}}, {{MAPPE_2}}]
+    defaults:
+      run:
+        working-directory: ${{ matrix.mappe }}
+    steps:
+      - uses: actions/checkout@{{SHA_CHECKOUT}}
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@{{SHA_SETUP_NODE}}   # tilpass til stacken
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.mappe }}/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck   # skal finnes (se CLAUDE.md). Mangler scriptet, skal jobben feile, ikke hoppe over
+      - run: npm test -- --coverage   # sett dekningsgrense i testkonfigen, ikke her
+      - run: npm run build
+      - name: Ingen hoppede eller isolerte tester
+        run: |
+          if grep -rEn --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=coverage -e '\b(test|it|describe)\.(skip|only|fixme|todo)\b' -e '(^|[^.A-Za-z0-9_])(xit|xdescribe|fit|fdescribe)\(' -e '\.(skipIf|runIf)\(' .; then
+            echo "Fant hoppede eller isolerte tester (linjene over). Fjern dem."
+            exit 1
+          fi
+
+  avhengigheter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        mappe: [{{MAPPE_1}}, {{MAPPE_2}}]
+    defaults:
+      run:
+        working-directory: ${{ matrix.mappe }}
+    steps:
+      - uses: actions/checkout@{{SHA_CHECKOUT}}
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@{{SHA_SETUP_NODE}}   # tilpass til stacken
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.mappe }}/package-lock.json
+      - run: npm ci   # .npmrc med ignore-scripts=true blokkerer installasjonsskript
+      - run: npm audit --audit-level=high
+      - run: npm audit signatures   # npm audit fanger ikke skadevare uten advisory
+
+  hemmeligheter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@{{SHA_CHECKOUT}}
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@{{SHA_GITLEAKS}}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: {{GITLEAKS_VERSJON}}   # eksakt binærversjon, aldri "latest"
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"   # offentlig repo: ingen SARIF-artefakt
+
+  kodeanalyse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@{{SHA_CHECKOUT}}
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@{{SHA_CODEQL}}
+        with:
+          languages: javascript-typescript   # tilpass til stacken
+      - uses: github/codeql-action/analyze@{{SHA_CODEQL}}
+
+  e2e:   # Playwright. Fjern jobben hvis prosjektet ikke har UI.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: {{E2E_MAPPE}}   # mappen som har playwright.config.ts
+    steps:
+      - uses: actions/checkout@{{SHA_CHECKOUT}}
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@{{SHA_SETUP_NODE}}
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: {{E2E_MAPPE}}/package-lock.json
+      - run: npm ci
+      - run: npm run e2e:install -- --with-deps   # script i package.json: playwright install chromium
+      - run: npm run e2e          # webServer i playwright.config.ts starter PRODUKSJONSBYGGET (ikke dev-server)
+      - uses: actions/upload-artifact@{{SHA_UPLOAD_ARTIFACT}}
+        if: always()
+        with:
+          name: playwright-rapport
+          path: |
+            {{E2E_MAPPE}}/playwright-report/
+            {{E2E_MAPPE}}/test-results/
+          retention-days: 14
