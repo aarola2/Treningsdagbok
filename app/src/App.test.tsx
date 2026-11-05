@@ -152,4 +152,15 @@ describe('App', () => {
       expect(screen.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeInTheDocument()
     })
   })
+
+  it('eksporterer øktene som vises, også en nylig lagret økt', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
+    URL.createObjectURL = vi.fn(() => 'blob:test/1')
+    URL.revokeObjectURL = vi.fn()
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    render(<App />)
+    const user = await register('Løping', '45')
+    await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
+    expect(screen.getAllByRole('status').some((status) => status.textContent === 'Eksporterte 2 økter til treningsdagbok-2026-11-05.json.')).toBe(true)
+  })
 })

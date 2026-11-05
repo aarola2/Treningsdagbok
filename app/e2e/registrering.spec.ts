@@ -37,7 +37,7 @@ test('registrerer en økt som fortsatt er lagret etter omlasting', async ({ page
   await page.getByLabel('Varighet (minutter)').fill('45')
   await page.getByRole('button', { name: 'Lagre økt' }).click()
 
-  await expect(page.getByRole('status')).toHaveText('«Løping» er lagret.')
+  await expect(page.getByRole('form').getByRole('status')).toHaveText('«Løping» er lagret.')
   await expect(page.getByLabel('Type')).toHaveValue('')
   await expectNoAxeViolations(page)
   await attachScreenshot(page, testInfo, 'lagret')
@@ -84,7 +84,7 @@ test('hele registreringen kan gjøres med bare tastatur', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Lagre økt' })).toBeFocused()
   await page.keyboard.press('Enter')
 
-  await expect(page.getByRole('status')).toHaveText('«Styrke» er lagret.')
+  await expect(page.getByRole('form').getByRole('status')).toHaveText('«Styrke» er lagret.')
 })
 
 test.describe('ødelagte lagrede data', () => {
@@ -123,7 +123,7 @@ test.describe('ødelagte lagrede data', () => {
     await page.keyboard.press('Enter')
 
     await expect(page.getByRole('dialog')).toBeHidden()
-    await expect(page.getByRole('status')).toHaveText('«Svømming» er lagret.')
+    await expect(page.getByRole('form').getByRole('status')).toHaveText('«Svømming» er lagret.')
     await expect(page.getByRole('button', { name: 'Lagre økt' })).toBeFocused()
     expect(await storedData(page)).toEqual({
       versjon: 1,
@@ -132,7 +132,7 @@ test.describe('ødelagte lagrede data', () => {
 
     // En gjentatt Enter på knappen lagrer ikke økten en gang til og gir ingen feltfeil.
     await page.keyboard.press('Enter')
-    await expect(page.getByRole('status')).toHaveText('«Svømming» er lagret.')
+    await expect(page.getByRole('form').getByRole('status')).toHaveText('«Svømming» er lagret.')
     await expect(page.getByRole('button', { name: 'Lagre økt' })).toBeFocused()
     await expect(page.getByLabel('Type')).not.toHaveAttribute('aria-invalid')
     expect(await storedData(page)).toMatchObject({ okter: [valid, { type: 'Svømming' }] })
@@ -188,7 +188,7 @@ test.describe('320 px bredde', () => {
     await page.getByLabel('Type').fill('x'.repeat(50))
     await page.getByLabel('Varighet (minutter)').fill('10')
     await page.getByRole('button', { name: 'Lagre økt' }).click()
-    await expect(page.getByRole('status')).toContainText('er lagret.')
+    await expect(page.getByRole('form').getByRole('status')).toContainText('er lagret.')
     await expectNoHorizontalScroll(page)
   })
 
