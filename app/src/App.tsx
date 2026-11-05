@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { ExportSection } from './ExportSection'
 import { WorkoutForm } from './WorkoutForm'
 import { WorkoutList } from './WorkoutList'
 import type { Announcement, FocusTarget } from './WorkoutList'
@@ -50,6 +51,7 @@ export function App() {
           if (editing?.id === deletedId) setEditing(null)
         }}
       />
+      <ExportSection workouts={list.workouts} />
     </main>
   )
 }

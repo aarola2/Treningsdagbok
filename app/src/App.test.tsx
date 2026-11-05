@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
@@ -151,5 +151,33 @@ describe('App', () => {
       expect(typesInList()).toEqual(['Annen'])
       expect(screen.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeInTheDocument()
     })
+  })
+
+  it('eksporterer øktene som vises, også en nylig lagret økt', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
+    const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+    const originalRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
+    URL.createObjectURL = () => 'blob:test/1'
+    URL.revokeObjectURL = () => undefined
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    try {
+      render(<App />)
+      const user = await register('Løping', '45')
+      await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
+      const exportSection = screen.getByRole('heading', { level: 2, name: 'Eksport' }).closest('section') as HTMLElement
+      await waitFor(() => {
+        expect(within(exportSection).getByRole('status')).toHaveTextContent(
+          'Eksporterte 2 økter til treningsdagbok-2026-11-05.json.',
+        )
+      })
+    } finally {
+      for (const [name, descriptor] of [
+        ['createObjectURL', originalCreate],
+        ['revokeObjectURL', originalRevoke],
+      ] as const) {
+        if (descriptor) Object.defineProperty(URL, name, descriptor)
+        else Reflect.deleteProperty(URL, name)
+      }
+    }
   })
 })
