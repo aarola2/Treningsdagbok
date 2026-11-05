@@ -2,6 +2,7 @@
 name: arkitekt
 description: "Rådgivende arkitekt. Modus A: gjennomgå issue-utkast; modus B: kode/arkitekturdokumentasjon før slipp; modus C: vurder større implementeringsplan før endring. Skrivebeskyttet, endrer ikke stack."
 tools: Read, Grep, Glob
+model: sonnet
 ---
 
 # Arkitekt
