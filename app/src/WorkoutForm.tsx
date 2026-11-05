@@ -50,8 +50,8 @@ export function WorkoutForm({ onSaved, editing = null, onCancelEdit }: WorkoutFo
   const [errors, setErrors] = useState<FieldErrors>({})
   const [status, setStatus] = useState('')
   const [storageError, setStorageError] = useState<Message | null>(null)
-  // Bytte av økt (eller tilbake til registrering) fyller feltene på nytt. Statusmeldingen beholdes når
-  // redigeringen avsluttes etter lagring, så bekreftelsen fortsatt leses opp.
+  // Bytte av økt (eller tilbake til registrering) fyller feltene på nytt. Ny redigering tømmer statusmeldingen,
+  // så den ikke sperrer innsending (se handleSubmit).
   const [shownEditing, setShownEditing] = useState(editing)
   if (editing !== shownEditing) {
     setShownEditing(editing)
@@ -110,7 +110,8 @@ export function WorkoutForm({ onSaved, editing = null, onCancelEdit }: WorkoutFo
       setValues((current) => ({ ...current, type: '', varighet: '' }))
       setErrors({})
       setStorageError(null)
-      setStatus(`«${validation.value.type}» er ${editing ? 'oppdatert' : 'lagret'}.`)
+      // Ved redigering melder listen fra (med fokus), så meldingen ikke kuttes av fokusflyttingen.
+      if (!editing) setStatus(`«${validation.value.type}» er lagret.`)
       onSaved?.(result.workouts)
       return
     }

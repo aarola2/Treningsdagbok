@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { WorkoutForm } from './WorkoutForm'
 import { WorkoutList } from './WorkoutList'
-import type { FocusTarget } from './WorkoutList'
+import type { Announcement, FocusTarget } from './WorkoutList'
 import type { Workout } from './workout'
 import { loadWorkouts } from './workoutStorage'
 import type { LoadResult } from './workoutStorage'
@@ -11,11 +11,12 @@ export function App() {
   const [list, setList] = useState<LoadResult>(loadWorkouts)
   const [editing, setEditing] = useState<Workout | null>(null)
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null)
-  const focusSeq = useRef(0)
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null)
+  const seq = useRef(0)
 
-  function focusInList(id: string, on: FocusTarget['on']) {
-    focusSeq.current += 1
-    setFocusTarget({ id, on, seq: focusSeq.current })
+  function nextSeq() {
+    seq.current += 1
+    return seq.current
   }
 
   return (
@@ -26,19 +27,24 @@ export function App() {
         onSaved={(workouts) => {
           setList({ status: 'ok', workouts })
           if (editing) {
-            focusInList(editing.id, 'row')
+            const saved = workouts.find((workout) => workout.id === editing.id)
+            if (saved) setAnnouncement({ text: `«${saved.type}» er oppdatert.`, seq: nextSeq() })
             setEditing(null)
           }
         }}
         onCancelEdit={() => {
-          if (editing) focusInList(editing.id, 'edit')
+          if (editing) setFocusTarget({ id: editing.id, seq: nextSeq() })
           setEditing(null)
         }}
       />
       <WorkoutList
         list={list}
         focusTarget={focusTarget}
-        onEdit={setEditing}
+        announcement={announcement}
+        // Ny kopi for hvert klikk: Rediger på samme økt fyller feltene på nytt og flytter fokus til Dato.
+        onEdit={(workout) => {
+          setEditing({ ...workout })
+        }}
         onDeleted={(workouts, deletedId) => {
           setList({ status: 'ok', workouts })
           if (editing?.id === deletedId) setEditing(null)

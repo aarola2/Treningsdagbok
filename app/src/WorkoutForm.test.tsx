@@ -518,7 +518,7 @@ describe('WorkoutForm – redigering', () => {
     expect(screen.queryByRole('button', { name: 'Lagre økt' })).not.toBeInTheDocument()
   })
 
-  it('lagrer endringen med samme id og melder fra', async () => {
+  it('lagrer endringen med samme id og melder fra til onSaved (listen viser meldingen)', async () => {
     const { onSaved, user } = renderEdit()
     await user.clear(screen.getByLabelText('Varighet (minutter)'))
     await user.type(screen.getByLabelText('Varighet (minutter)'), '55')
@@ -526,7 +526,7 @@ describe('WorkoutForm – redigering', () => {
     const updated = { ...editing, varighet: 55 }
     expect(loadWorkouts().workouts).toEqual([updated])
     expect(onSaved).toHaveBeenCalledWith([updated])
-    expect(screen.getByRole('status')).toHaveTextContent('«<b>Løping</b>» er oppdatert.')
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
   it('bruker samme validering og lagrer ingenting ved feil', async () => {
@@ -570,10 +570,11 @@ describe('WorkoutForm – redigering', () => {
     await user.type(screen.getByLabelText('Varighet (minutter)'), '10')
     await user.click(screen.getByRole('button', { name: 'Lagre økt' }))
     expect(screen.getByRole('status')).toHaveTextContent('«Ny» er lagret.')
-    rerender(<WorkoutForm editing={editing} />)
+    const onSaved = vi.fn()
+    rerender(<WorkoutForm editing={editing} onSaved={onSaved} />)
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
     await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
-    expect(screen.getByRole('status')).toHaveTextContent('er oppdatert.')
+    expect(onSaved).toHaveBeenCalledOnce()
   })
 
   it('viser feilmelding når økten ikke finnes lenger', async () => {
@@ -596,7 +597,7 @@ describe('WorkoutForm – redigering', () => {
     expect(loadWorkouts().workouts).toEqual([editing])
   })
 
-  it('går tilbake til tomt registreringsskjema når redigeringen avsluttes, og beholder statusmeldingen', async () => {
+  it('går tilbake til tomt registreringsskjema når redigeringen avsluttes', async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [editing] }))
     const user = userEvent.setup()
     const { rerender } = render(<WorkoutForm editing={editing} />)
@@ -605,7 +606,7 @@ describe('WorkoutForm – redigering', () => {
     expect(screen.getByRole('form', { name: 'Registrer økt' })).toBeInTheDocument()
     expect(screen.getByLabelText('Type')).toHaveValue('')
     expect(screen.getByLabelText('Dato')).toHaveValue('2026-11-05')
-    expect(screen.getByRole('status')).toHaveTextContent('er oppdatert.')
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
   it('bytter til en annen økt og tømmer gamle feil', async () => {

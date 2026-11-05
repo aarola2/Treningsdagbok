@@ -104,7 +104,7 @@ describe('App', () => {
       expect(screen.getByLabelText('Dato')).toHaveFocus()
     })
 
-    it('Lagre endringer oppdaterer listen uten omlasting og flytter fokus til raden', async () => {
+    it('Lagre endringer oppdaterer listen uten omlasting og flytter fokus til en melding', async () => {
       const user = userEvent.setup()
       render(<App />)
       await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
@@ -113,10 +113,20 @@ describe('App', () => {
       await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
 
       expect(typesInList()).toEqual(['Endret', 'Annen'])
-      expect(screen.getByRole('status')).toHaveTextContent('«Endret» er oppdatert.')
+      expect(screen.getByText('«Endret» er oppdatert.')).toHaveFocus()
       expect(screen.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeInTheDocument()
       expect(screen.getByLabelText('Type')).toHaveValue('')
-      expect(screen.getAllByRole('row')[1]).toHaveFocus()
+    })
+
+    it('Rediger på samme økt igjen fyller feltene på nytt og flytter fokus til Dato', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      await user.clear(screen.getByLabelText('Type'))
+      await user.type(screen.getByLabelText('Type'), 'Halvferdig')
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      expect(screen.getByLabelText('Type')).toHaveValue('Lagret')
+      expect(screen.getByLabelText('Dato')).toHaveFocus()
     })
 
     it('Avbryt redigering endrer ingenting og gir fokus tilbake til Rediger-knappen', async () => {

@@ -32,17 +32,22 @@ const deleteErrorMessages: Record<DeleteError, string> = {
   limit: 'Økten ble ikke slettet.',
 }
 
-// Hvor fokus skal etter en handling i skjemaet; seq gjør at samme mål kan bes om flere ganger.
+// Etter avbrutt redigering: fokus til øktens Rediger-knapp. seq gjør at samme mål kan bes om flere ganger.
 export interface FocusTarget {
   id: string
-  on: 'row' | 'edit'
+  seq: number
+}
+
+// Melding fra skjemaet (f.eks. etter redigering) som listen viser og flytter fokus til.
+export interface Announcement {
+  text: string
   seq: number
 }
 
 interface Notice {
   text: string
   error: boolean
-  key: number
+  key: string
 }
 
 interface WorkoutListProps {
@@ -50,6 +55,7 @@ interface WorkoutListProps {
   onEdit?: (workout: Workout) => void
   onDeleted?: (workouts: Workout[], deletedId: string) => void
   focusTarget?: FocusTarget | null
+  announcement?: Announcement | null
 }
 
 // Én side holder visningen rask også med 5 000 økter (og på trege maskiner), og gir skjermlesere en håndterlig tabell.
@@ -77,7 +83,7 @@ function sortNewestFirst(workouts: Workout[]): Workout[] {
     .map(({ workout }) => workout)
 }
 
-export function WorkoutList({ list, onEdit, onDeleted, focusTarget }: WorkoutListProps) {
+export function WorkoutList({ list, onEdit, onDeleted, focusTarget, announcement = null }: WorkoutListProps) {
   const headingId = useId()
   const headingRef = useRef<HTMLHeadingElement>(null)
   const noticeRef = useRef<HTMLParagraphElement>(null)
@@ -86,6 +92,11 @@ export function WorkoutList({ list, onEdit, onDeleted, focusTarget }: WorkoutLis
   const [corruptKept, setCorruptKept] = useState<number | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const noticeKey = useRef(0)
+  const [shownAnnouncement, setShownAnnouncement] = useState(announcement)
+  if (announcement !== shownAnnouncement) {
+    setShownAnnouncement(announcement)
+    if (announcement) setNotice({ text: announcement.text, error: false, key: `a${String(announcement.seq)}` })
+  }
   const sorted = useMemo(() => sortNewestFirst(list.workouts), [list.workouts])
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const shown = sorted.slice(0, visibleCount)
@@ -101,25 +112,24 @@ export function WorkoutList({ list, onEdit, onDeleted, focusTarget }: WorkoutLis
     bodyRef.current?.rows[firstNew]?.focus()
   }
 
-  // Etter lagring eller avbrutt redigering: fokus til raden eller dens Rediger-knapp, eller overskriften hvis
-  // økten ikke vises på denne siden.
+  // Etter avbrutt redigering: fokus til øktens Rediger-knapp, eller overskriften hvis den ikke vises på siden.
   useEffect(() => {
     if (!focusTarget) return
     const row = bodyRef.current?.querySelector<HTMLElement>(`tr[data-workout-id="${CSS.escape(focusTarget.id)}"]`)
-    const target = focusTarget.on === 'edit' ? row?.querySelector<HTMLElement>('[data-action="edit"]') : row
-    ;(target ?? headingRef.current)?.focus()
+    ;(row?.querySelector<HTMLElement>('[data-action="edit"]') ?? headingRef.current)?.focus()
   }, [focusTarget])
+
+  // Fokus til en ny melding: den leses opp, og fokus forsvinner ikke med en slettet rad. Dialogens effekt
+  // (barnet) har allerede lukket dialogen.
+  useEffect(() => {
+    if (notice) noticeRef.current?.focus()
+  }, [notice])
 
   function showNotice(text: string, error: boolean) {
     noticeKey.current += 1
-    // Lukker også dialogene i samme oppdatering, før fokus flyttes.
-    flushSync(() => {
-      setDeleting(null)
-      setCorruptKept(null)
-      setNotice({ text, error, key: noticeKey.current })
-    })
-    // Fokus til meldingen: den leses opp, og fokus forsvinner ikke med den slettede raden.
-    noticeRef.current?.focus()
+    setDeleting(null)
+    setCorruptKept(null)
+    setNotice({ text, error, key: `d${String(noticeKey.current)}` })
   }
 
   function confirmDelete(workout: Workout, discardInvalid: boolean) {
@@ -130,13 +140,14 @@ export function WorkoutList({ list, onEdit, onDeleted, focusTarget }: WorkoutLis
       return
     }
     if (result.error === 'corrupt') {
-      setCorruptKept(loadWorkouts().workouts.length)
+      // Antall som blir igjen, uten økten som slettes.
+      setCorruptKept(loadWorkouts().workouts.filter((stored) => stored.id !== workout.id).length)
       return
     }
     showNotice(deleteErrorMessages[result.error], true)
   }
   const message = statusMessage(list)
-  const corruptText = corruptDialogText(corruptKept ?? 1, 'delete')
+  const corruptText = corruptDialogText(corruptKept ?? 0, 'delete')
 
   return (
     <section>
@@ -182,7 +193,10 @@ export function WorkoutList({ list, onEdit, onDeleted, focusTarget }: WorkoutLis
                       className="secondary small"
                       data-action="edit"
                       aria-label={`Rediger ${describe(workout)}`}
-                      onClick={() => onEdit?.(workout)}
+                      onClick={() => {
+                        setNotice(null)
+                        onEdit?.(workout)
+                      }}
                     >
                       Rediger
                     </button>
@@ -191,6 +205,7 @@ export function WorkoutList({ list, onEdit, onDeleted, focusTarget }: WorkoutLis
                       className="secondary small"
                       aria-label={`Slett ${describe(workout)}`}
                       onClick={() => {
+                        setNotice(null)
                         setDeleting(workout)
                       }}
                     >

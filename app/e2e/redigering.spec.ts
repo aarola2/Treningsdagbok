@@ -63,8 +63,7 @@ test('redigerer en økt med bare tastatur, og endringen gjelder etter omlasting'
   await page.keyboard.type('Pilates')
   await page.keyboard.press('Enter')
 
-  await expect(page.getByRole('status').filter({ hasText: 'oppdatert' })).toHaveText('«Pilates» er oppdatert.')
-  await expect(list(page).getByRole('row').nth(2)).toBeFocused()
+  await expect(page.getByText('«Pilates» er oppdatert.')).toBeFocused()
   await expect(list(page).getByRole('row').nth(2).getByRole('cell').nth(1)).toHaveText(/^Pilates/)
   await expect(page.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeVisible()
   await expectNoReload(page)
