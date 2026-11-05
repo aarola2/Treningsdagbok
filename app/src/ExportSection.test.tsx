@@ -10,18 +10,27 @@ const workouts = [
 
 let blobs: Blob[] = []
 let clicked: HTMLAnchorElement[] = []
+const revoke = vi.fn()
+const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+const originalRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
+
+function restore(name: 'createObjectURL' | 'revokeObjectURL', descriptor: PropertyDescriptor | undefined) {
+  if (descriptor) Object.defineProperty(URL, name, descriptor)
+  else Reflect.deleteProperty(URL, name)
+}
 
 beforeEach(() => {
   blobs = []
   clicked = []
+  revoke.mockReset()
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date(2026, 10, 5, 12))
   // jsdom mangler createObjectURL; ekte nedlasting testes i e2e.
-  URL.createObjectURL = vi.fn((blob: Blob) => {
+  URL.createObjectURL = (blob: Blob) => {
     blobs.push(blob)
     return 'blob:test/1'
-  })
-  URL.revokeObjectURL = vi.fn()
+  }
+  URL.revokeObjectURL = revoke
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
     clicked.push(this)
   })
@@ -30,7 +39,15 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  restore('createObjectURL', originalCreate)
+  restore('revokeObjectURL', originalRevoke)
 })
+
+async function expectStatus(text: string) {
+  await waitFor(() => {
+    expect(screen.getByRole('status').textContent).toBe(text)
+  })
+}
 
 describe('ExportSection', () => {
   it('har overskrift, forklaring og knapp', () => {
@@ -38,6 +55,11 @@ describe('ExportSection', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Eksport' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Eksporter økter' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  it('forteller at filen ikke er kryptert', () => {
+    render(<ExportSection workouts={workouts} />)
+    expect(screen.getByText(/Filen er ikke kryptert, så oppbevar den trygt\./)).toBeInTheDocument()
   })
 
   it('laster ned en JSON-fil med alle øktene og melder fra', async () => {
@@ -53,21 +75,55 @@ describe('ExportSection', () => {
     expect(clicked[0]?.getAttribute('href')).toBe('blob:test/1')
     expect(clicked[0]?.isConnected).toBe(false)
     await waitFor(() => {
-      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test/1')
+      expect(revoke).toHaveBeenCalledWith('blob:test/1')
     })
-    expect(screen.getByRole('status')).toHaveTextContent('Eksporterte 2 økter til treningsdagbok-2026-11-05.json.')
+    await expectStatus('Eksporterte 2 økter til treningsdagbok-2026-11-05.json.')
   })
 
   it('bruker entall for én økt og tusenskille for mange', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<ExportSection workouts={workouts.slice(0, 1)} />)
     await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
-    expect(screen.getByRole('status')).toHaveTextContent('Eksporterte 1 økt til')
+    await expectStatus('Eksporterte 1 økt til treningsdagbok-2026-11-05.json.')
 
     const many = Array.from({ length: 5000 }, (_, n) => ({ ...workouts[0], id: String(n) })) as typeof workouts
     rerender(<ExportSection workouts={many} />)
     await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
-    expect(screen.getByRole('status').textContent).toBe('Eksporterte 5 000 økter til treningsdagbok-2026-11-05.json.')
+    await expectStatus('Eksporterte 5 000 økter til treningsdagbok-2026-11-05.json.')
+  })
+
+  it('tømmer meldingen før den settes på nytt ved gjentatt eksport, så den leses opp igjen', async () => {
+    const user = userEvent.setup()
+    render(<ExportSection workouts={workouts} />)
+    const message = 'Eksporterte 2 økter til treningsdagbok-2026-11-05.json.'
+    await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
+    await expectStatus(message)
+    await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
+    // Rett etter klikket er meldingen tom; den samme teksten kommer tilbake som en ny endring.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    await expectStatus(message)
+    expect(clicked).toHaveLength(2)
+  })
+
+  it('fjerner meldingen når listen endres', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<ExportSection workouts={workouts} />)
+    await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
+    await expectStatus('Eksporterte 2 økter til treningsdagbok-2026-11-05.json.')
+    rerender(<ExportSection workouts={[]} />)
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    expect(screen.getByText('Det finnes ingen økter å eksportere ennå.')).toBeInTheDocument()
+  })
+
+  it('viser feilmelding når nedlastingen ikke kan startes', async () => {
+    URL.createObjectURL = () => {
+      throw new Error('blokkert')
+    }
+    const user = userEvent.setup()
+    render(<ExportSection workouts={workouts} />)
+    await user.click(screen.getByRole('button', { name: 'Eksporter økter' }))
+    await expectStatus('Nedlastingen kunne ikke startes. Prøv igjen.')
+    expect(clicked).toHaveLength(0)
   })
 
   it('uten økter vises ingen knapp, men en norsk melding', () => {
