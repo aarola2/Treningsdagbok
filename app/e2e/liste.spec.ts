@@ -51,9 +51,10 @@ test('viser lagrede økter sortert med nyeste først, og ny økt uten omlasting'
   ])
   const rows = list(page).getByRole('row')
   await expect(rows).toHaveCount(4)
-  await expect(rows.nth(1).getByRole('cell')).toHaveText(['1. mars 2026', 'Nyest sist registrert', '60 min'])
-  await expect(rows.nth(2).getByRole('cell').nth(1)).toHaveText('Nyest først registrert')
-  await expect(rows.nth(3).getByRole('cell').nth(1)).toHaveText('Eldst')
+  // Type-cellen inneholder også knappene Rediger/Slett.
+  await expect(rows.nth(1).getByRole('cell')).toHaveText(['1. mars 2026', /^Nyest sist registrert/, '60 min'])
+  await expect(rows.nth(2).getByRole('cell').nth(1)).toHaveText(/^Nyest først registrert/)
+  await expect(rows.nth(3).getByRole('cell').nth(1)).toHaveText(/^Eldst/)
 
   // Markøren forsvinner hvis siden lastes på nytt.
   await page.evaluate(() => Reflect.set(window, 'ingenOmlasting', true))
@@ -63,7 +64,7 @@ test('viser lagrede økter sortert med nyeste først, og ny økt uten omlasting'
   await page.getByRole('button', { name: 'Lagre økt' }).click()
 
   await expect(rows).toHaveCount(5)
-  await expect(rows.nth(3).getByRole('cell').nth(1)).toHaveText('Ny i midten')
+  await expect(rows.nth(3).getByRole('cell').nth(1)).toHaveText(/^Ny i midten/)
   expect(await page.evaluate(() => Reflect.get(window, 'ingenOmlasting') === true)).toBe(true)
   await expectNoAxeViolations(page)
   await attachScreenshot(page, testInfo, 'liste')
@@ -80,7 +81,7 @@ test('viser tomtilstand når det ikke finnes økter', async ({ page }, testInfo)
 test('viser feilmelding og gyldige økter ved ødelagte data', async ({ page }, testInfo) => {
   await store(page, [{ id: id(1), dato: '2026-01-10', type: 'Gyldig', varighet: 30 }, { id: 'ødelagt' }])
   await expect(page.getByText('Noen lagrede data kan ikke leses. Bare gyldige økter vises.')).toBeVisible()
-  await expect(list(page).getByRole('cell', { name: 'Gyldig' })).toBeVisible()
+  await expect(list(page).getByRole('cell', { name: /^Gyldig/ })).toBeVisible()
   await expectNoAxeViolations(page)
   await attachScreenshot(page, testInfo, 'odelagte-data')
 })
@@ -101,7 +102,7 @@ test('viser HTML og skript i type som ren tekst uten å kjøre det', async ({ pa
 
   const payload = '<img src=x onerror=alert(1)>'
   await store(page, [{ id: id(1), dato: '2026-01-10', type: payload, varighet: 30 }])
-  await expect(list(page).getByRole('cell', { name: payload })).toBeVisible()
+  await expect(list(page).getByText(payload, { exact: true })).toBeVisible()
   await expect(page.getByRole('img')).toHaveCount(0)
   expect(dialogs).toEqual([])
   expect(errors).toEqual([])
@@ -210,7 +211,7 @@ test.describe('320 px bredde', () => {
     })
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
-    const typeCell = list(page).getByRole('cell', { name: 'Langdistanseløping i terreng' })
+    const typeCell = list(page).getByRole('cell', { name: /^Langdistanseløping i terreng/ })
     const box = await typeCell.boundingBox()
     expect(box?.width ?? 0).toBeGreaterThanOrEqual(80)
     await attachScreenshot(page, testInfo, 'liste-320px-tekstavstand')
