@@ -19,13 +19,10 @@ function download(filename: string, json: string) {
 }
 
 export function ExportSection({ workouts }: { workouts: Workout[] }) {
-  const [status, setStatus] = useState('')
-  // En melding om forrige eksport er foreldet når listen endres (lagring, redigering, sletting).
-  const [shownWorkouts, setShownWorkouts] = useState(workouts)
-  if (workouts !== shownWorkouts) {
-    setShownWorkouts(workouts)
-    setStatus('')
-  }
+  // Meldingen gjelder listen den ble laget for, og vises bare så lenge listen er den samme. En endring
+  // (lagring, redigering, sletting) skjuler den, også om den settes av timeren etter endringen.
+  const [status, setStatus] = useState<{ text: string; workouts: Workout[] }>({ text: '', workouts })
+  const shownStatus = status.workouts === workouts ? status.text : ''
 
   function exportAll() {
     const { filename, json } = buildExport(workouts, new Date())
@@ -39,9 +36,9 @@ export function ExportSection({ workouts }: { workouts: Workout[] }) {
     }
     // Tøm først og sett teksten litt senere: to separate endringer gjør at skjermlesere leser opp også en lik
     // melding ved gjentatt eksport (endringer i samme oppgave kan slås sammen i tilgjengelighetstreet).
-    setStatus('')
+    setStatus({ text: '', workouts })
     setTimeout(() => {
-      setStatus(message)
+      setStatus({ text: message, workouts })
     }, STATUS_DELAY_MS)
   }
 
@@ -62,7 +59,7 @@ export function ExportSection({ workouts }: { workouts: Workout[] }) {
         <p>Det finnes ingen økter å eksportere ennå.</p>
       )}
       <p role="status" className="status">
-        {status}
+        {shownStatus}
       </p>
     </section>
   )

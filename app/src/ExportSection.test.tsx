@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExportSection } from './ExportSection'
@@ -113,6 +113,27 @@ describe('ExportSection', () => {
     rerender(<ExportSection workouts={[]} />)
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
     expect(screen.getByText('Det finnes ingen økter å eksportere ennå.')).toBeInTheDocument()
+  })
+
+  it('viser ikke en foreldet melding når listen endres før meldingen er satt', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(new Date(2026, 10, 5, 12))
+    const { rerender } = render(<ExportSection workouts={workouts} />)
+    const button = screen.getByRole('button', { name: 'Eksporter økter' })
+
+    // Kontroll: uten listeendring kommer meldingen når timeren har gått.
+    fireEvent.click(button)
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    expect(screen.getByRole('status')).toHaveTextContent('Eksporterte 2 økter')
+
+    fireEvent.click(button)
+    rerender(<ExportSection workouts={workouts.slice(0, 1)} />)
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
   it('viser feilmelding når nedlastingen ikke kan startes', async () => {
