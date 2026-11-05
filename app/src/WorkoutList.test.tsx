@@ -16,7 +16,7 @@ function dataRows() {
   return screen.getAllByRole('row').slice(1)
 }
 
-const emptyText = 'Du har ingen lagrede økter ennå. Registrer den første økten i skjemaet over.'
+const emptyText = 'Du har ingen lagrede økter ennå. Registrer den første økten i skjemaet «Registrer økt».'
 
 describe('WorkoutList', () => {
   it('viser øktene i en tabell med navn og kolonneoverskrifter', () => {
@@ -28,7 +28,7 @@ describe('WorkoutList', () => {
       'Varighet',
     ])
     const cells = within(dataRows()[0] as HTMLElement).getAllByRole('cell')
-    expect(cells.map((cell) => cell.textContent)).toEqual(['5. nov. 2026', 'Løping', '45 min'])
+    expect(cells.map((cell) => cell.textContent)).toEqual(['5. nov. 2026', 'Løping', '45\u00A0min'])
     expect(within(cells[0] as HTMLElement).getByText('5. nov. 2026').closest('time')).toHaveAttribute(
       'datetime',
       '2026-11-05',
@@ -45,6 +45,38 @@ describe('WorkoutList', () => {
     ]
     renderList({ status: 'ok', workouts })
     expect(dataRows().map((row) => within(row).getAllByRole('cell')[1]?.textContent)).toEqual(['D', 'B', 'C', 'A', 'E'])
+  })
+
+  it.each([
+    ['stigende', ['2026-01-01', '2026-06-01', '2026-12-01']],
+    ['synkende', ['2026-12-01', '2026-06-01', '2026-01-01']],
+    ['blandet', ['2026-06-01', '2026-12-01', '2026-01-01']],
+    ['blandet omvendt', ['2026-12-01', '2026-01-01', '2026-06-01']],
+  ])('sorterer riktig uansett lagringsrekkefølge (%s)', (_, datoer) => {
+    renderList({ status: 'ok', workouts: datoer.map((dato, n) => workout(n, dato, dato)) })
+    expect(dataRows().map((row) => within(row).getAllByRole('cell')[1]?.textContent)).toEqual([
+      '2026-12-01',
+      '2026-06-01',
+      '2026-01-01',
+    ])
+  })
+
+  it('sorterer en stor liste i tilfeldig rekkefølge riktig (også når sorteringen fletter delsekvenser)', () => {
+    // Deterministisk «tilfeldig» rekkefølge av 300 datoer med mange like datoer.
+    const workouts = Array.from({ length: 300 }, (_, n) =>
+      workout(n, `2026-${String(((n * 7) % 12) + 1).padStart(2, '0')}-${String(((n * 13) % 28) + 1).padStart(2, '0')}`),
+    )
+    renderList({ status: 'ok', workouts })
+    const shown = dataRows().map((row) => {
+      const [dato, type] = within(row)
+        .getAllByRole('cell')
+        .map((cell) => cell.querySelector('time')?.getAttribute('datetime') ?? cell.textContent)
+      return { dato, n: Number(type?.replace('Økt ', '')) }
+    })
+    const expected = workouts
+      .map((w, n) => ({ dato: w.dato, n }))
+      .sort((a, b) => (a.dato === b.dato ? b.n - a.n : a.dato < b.dato ? 1 : -1))
+    expect(shown).toEqual(expected)
   })
 
   it('endrer ikke rekkefølgen i listen den får', () => {
@@ -67,9 +99,9 @@ describe('WorkoutList', () => {
     expect(screen.queryByText(emptyText)).not.toBeInTheDocument()
   })
 
-  it('viser bare feilmeldingen når ingen av de ødelagte dataene kan leses', () => {
+  it('sier at ingen økter kan vises når ingen av de ødelagte dataene kan leses', () => {
     renderList({ status: 'corrupt', workouts: [] })
-    expect(screen.getByText('Noen lagrede data kan ikke leses. Bare gyldige økter vises.')).toBeInTheDocument()
+    expect(screen.getByText('De lagrede dataene kan ikke leses, så ingen økter kan vises.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText(emptyText)).not.toBeInTheDocument()
   })

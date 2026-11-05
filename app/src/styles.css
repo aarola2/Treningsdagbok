@@ -144,33 +144,32 @@ main > section + section {
   margin-top: 1.5rem;
 }
 
-table {
+.workout-table {
   width: 100%;
   border-collapse: collapse;
 }
 
-th,
-td {
+.workout-table th,
+.workout-table td {
   padding: 0.5rem 0.375rem;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border);
 }
 
-th:first-child,
-td:first-child {
+.workout-table th:first-child,
+.workout-table td:first-child {
   padding-left: 0;
-  white-space: nowrap;
 }
 
-th:last-child,
-td:last-child {
+.workout-table th:last-child,
+.workout-table td:last-child {
   padding-right: 0;
   text-align: right;
-  white-space: nowrap;
 }
 
-/* Typen er brukerens tekst og kan være 50 tegn uten mellomrom. */
-td:nth-child(2) {
+/* Typen er brukerens tekst og kan være 50 tegn uten mellomrom; orddeling først, ellers brudd hvor som helst. */
+.workout-table td:nth-child(2) {
   overflow-wrap: anywhere;
+  hyphens: auto;
 }

@@ -22,6 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
   localStorage.clear()
 })
 
@@ -83,6 +84,5 @@ describe('App', () => {
     await register('Løping', '45')
     expect(screen.getByRole('alert')).toBeInTheDocument()
     expect(typesInList()).toEqual(['Lagret'])
-    vi.restoreAllMocks()
   })
 })

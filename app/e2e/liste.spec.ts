@@ -55,6 +55,8 @@ test('viser lagrede økter sortert med nyeste først, og ny økt uten omlasting'
   await expect(rows.nth(2).getByRole('cell').nth(1)).toHaveText('Nyest først registrert')
   await expect(rows.nth(3).getByRole('cell').nth(1)).toHaveText('Eldst')
 
+  // Markøren forsvinner hvis siden lastes på nytt.
+  await page.evaluate(() => Reflect.set(window, 'ingenOmlasting', true))
   await page.getByLabel('Dato').fill('2026-02-01')
   await page.getByLabel('Type').fill('Ny i midten')
   await page.getByLabel('Varighet (minutter)').fill('25')
@@ -62,13 +64,14 @@ test('viser lagrede økter sortert med nyeste først, og ny økt uten omlasting'
 
   await expect(rows).toHaveCount(5)
   await expect(rows.nth(3).getByRole('cell').nth(1)).toHaveText('Ny i midten')
+  expect(await page.evaluate(() => Reflect.get(window, 'ingenOmlasting') === true)).toBe(true)
   await expectNoAxeViolations(page)
   await attachScreenshot(page, testInfo, 'liste')
 })
 
 test('viser tomtilstand når det ikke finnes økter', async ({ page }, testInfo) => {
   await page.goto('./')
-  await expect(page.getByText('Du har ingen lagrede økter ennå. Registrer den første økten i skjemaet over.')).toBeVisible()
+  await expect(page.getByText('Du har ingen lagrede økter ennå. Registrer den første økten i skjemaet «Registrer økt».')).toBeVisible()
   await expect(list(page)).toHaveCount(0)
   await expectNoAxeViolations(page)
   await attachScreenshot(page, testInfo, 'tomtilstand')
@@ -99,29 +102,40 @@ test('viser HTML og skript i type som ren tekst uten å kjøre det', async ({ pa
   const payload = '<img src=x onerror=alert(1)>'
   await store(page, [{ id: id(1), dato: '2026-01-10', type: payload, varighet: 30 }])
   await expect(list(page).getByRole('cell', { name: payload })).toBeVisible()
-  await expect(page.locator('main img')).toHaveCount(0)
+  await expect(page.getByRole('img')).toHaveCount(0)
   expect(dialogs).toEqual([])
   expect(errors).toEqual([])
 })
 
-test('viser 5 000 økter med maksimal feltlengde innen 1 sekund etter omlasting', async ({ page }, testInfo) => {
-  const okter: StoredWorkout[] = Array.from({ length: 5000 }, (_, n) => ({
-    id: id(n),
-    dato: `20${String(10 + (n % 16))}-${String((n % 12) + 1).padStart(2, '0')}-${String((n % 28) + 1).padStart(2, '0')}`,
-    type: `${String(n).padStart(4, '0')}${'x'.repeat(46)}`,
-    varighet: 1440,
-  }))
-  await store(page, okter)
-  await expect(list(page).getByRole('row')).toHaveCount(5001)
+// Verste tilfelle: 50 kodepunkter der 46 er astrale emoji (to UTF-16-enheter hver, mest rådata og dyrest
+// tekstoppsett), og i smal visning der typen brytes over mange linjer.
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 320, height: 800 },
+]) {
+  test.describe(`${String(viewport.width)} px bredde`, () => {
+    test.use({ viewport })
 
-  const start = Date.now()
-  await page.reload()
-  await expect(list(page).getByRole('row').nth(5000)).toBeVisible()
-  const elapsed = Date.now() - start
+    test('viser 5 000 økter med maksimal feltlengde innen 1 sekund etter omlasting', async ({ page }, testInfo) => {
+      const okter: StoredWorkout[] = Array.from({ length: 5000 }, (_, n) => ({
+        id: id(n),
+        dato: `20${String(10 + (n % 16))}-${String((n % 12) + 1).padStart(2, '0')}-${String((n % 28) + 1).padStart(2, '0')}`,
+        type: `${String(n).padStart(4, '0')}${'\u{1F3C3}'.repeat(46)}`,
+        varighet: 1440,
+      }))
+      await store(page, okter)
+      await expect(list(page).getByRole('row')).toHaveCount(5001)
 
-  testInfo.annotations.push({ type: 'ytelse', description: `5 000 økter synlige etter ${String(elapsed)} ms` })
-  expect(elapsed).toBeLessThan(1000)
-})
+      const start = Date.now()
+      await page.reload()
+      await expect(list(page).getByRole('row').nth(5000)).toBeVisible()
+      const elapsed = Date.now() - start
+
+      testInfo.annotations.push({ type: 'ytelse', description: `5 000 økter synlige etter ${String(elapsed)} ms` })
+      expect(elapsed).toBeLessThan(1000)
+    })
+  })
+}
 
 for (const timezoneId of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
   test.describe(`tidssone ${timezoneId}`, () => {
@@ -147,5 +161,28 @@ test.describe('320 px bredde', () => {
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoAxeViolations(page)
     await attachScreenshot(page, testInfo, 'liste-320px')
+  })
+
+  test('tåler økt tekstavstand (WCAG 1.4.12) uten horisontal rulling eller klemt type', async ({ page }, testInfo) => {
+    await store(page, [
+      { id: id(1), dato: '2026-12-31', type: 'x'.repeat(50), varighet: 1440 },
+      { id: id(2), dato: '2026-11-05', type: 'Langdistanseløping i terreng', varighet: 90 },
+    ])
+    await expect(list(page).getByRole('row')).toHaveCount(3)
+    // CSP-en blokkerer et innsatt stilark (bypassCSP skal ikke brukes), så avstandene settes per element via CSSOM.
+    await page.evaluate(() => {
+      for (const element of document.querySelectorAll<HTMLElement>('body *')) {
+        element.style.setProperty('line-height', '1.5', 'important')
+        element.style.setProperty('letter-spacing', '0.12em', 'important')
+        element.style.setProperty('word-spacing', '0.16em', 'important')
+        if (element.tagName === 'P') element.style.setProperty('margin-bottom', '2em', 'important')
+      }
+    })
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+    const typeCell = list(page).getByRole('cell', { name: 'Langdistanseløping i terreng' })
+    const box = await typeCell.boundingBox()
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(80)
+    await attachScreenshot(page, testInfo, 'liste-320px-tekstavstand')
   })
 })
