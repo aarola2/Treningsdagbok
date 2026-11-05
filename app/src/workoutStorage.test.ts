@@ -61,7 +61,8 @@ describe('loadWorkouts', () => {
     ['versjon mangler', { okter: [] }],
     ['versjon som streng', { versjon: '1', okter: [] }],
     ['versjon 0', { versjon: 0, okter: [] }],
-    ['versjon som desimaltall', { versjon: 1.5, okter: [] }],
+    ['versjon mellom 0 og 1', { versjon: 0.5, okter: [] }],
+    ['negativ versjon', { versjon: -1, okter: [] }],
     ['okter mangler', { versjon: 1 }],
     ['okter er ikke liste', { versjon: 1, okter: {} }],
     ['for stor råstreng', 'x'.repeat(MAX_RAW_LENGTH + 1)],
@@ -111,8 +112,18 @@ describe('loadWorkouts', () => {
     expect(loadWorkouts()).toEqual({ status: 'corrupt', workouts: many.slice(0, MAX_WORKOUTS) })
   })
 
-  it('gir unsupported-version for nyere versjon', () => {
-    store({ versjon: 2, okter: [workout(1)], nyttFelt: true })
+  it('beholder 5 000 gyldige selv om ugyldige og duplikater ligger først', () => {
+    const valid = Array.from({ length: MAX_WORKOUTS }, (_, n) => workout(n))
+    store({ versjon: 1, okter: ['tull', valid[0], ...valid] })
+    expect(loadWorkouts()).toEqual({ status: 'corrupt', workouts: valid })
+  })
+
+  it.each([
+    ['2', 2],
+    ['2.5', 2.5],
+    ['1e400 (uendelig)', '1e400'],
+  ])('gir unsupported-version for nyere versjon %s', (_, versjon) => {
+    store(`{"versjon":${String(versjon)},"okter":[],"nyttFelt":true}`)
     expect(loadWorkouts()).toEqual({ status: 'unsupported-version', workouts: [] })
   })
 
@@ -243,6 +254,13 @@ describe('addWorkout', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
   })
 
+  it('gir unavailable ved vanlig feil med kvotenavn (ikke DOMException)', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw Object.assign(new Error('Full'), { name: 'QuotaExceededError' })
+    })
+    expect(addWorkout(input, { today })).toEqual({ ok: false, error: 'unavailable' })
+  })
+
   it('gir unavailable ved annen skrivefeil', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('Skrivefeil')
@@ -280,6 +298,22 @@ describe('skrivesperre ved ødelagte data', () => {
     expect(result.workouts[0]).toEqual(workout(1))
     expect(result.workouts[1]).toMatchObject(input)
     expect(loadWorkouts()).toEqual({ status: 'ok', workouts: result.workouts })
+  })
+
+  it('oppdatering med bekreftet forkasting lagrer gyldige økter med endringen', () => {
+    store(corrupt)
+    const expected = [{ ...workout(1), ...input, type: 'Yoga' }]
+    expect(updateWorkout(workout(1).id, { ...input, type: 'Yoga' }, { today, discardInvalid: true })).toEqual({
+      ok: true,
+      workouts: expected,
+    })
+    expect(loadWorkouts()).toEqual({ status: 'ok', workouts: expected })
+  })
+
+  it('sletting med bekreftet forkasting lagrer de gjenværende gyldige øktene', () => {
+    store(JSON.stringify({ versjon: 1, okter: [workout(1), workout(3), 'tull'] }))
+    expect(deleteWorkout(workout(1).id, { discardInvalid: true })).toEqual({ ok: true, workouts: [workout(3)] })
+    expect(loadWorkouts()).toEqual({ status: 'ok', workouts: [workout(3)] })
   })
 
   it('forkasting med ødelagt JSON gir bare den nye økten', () => {

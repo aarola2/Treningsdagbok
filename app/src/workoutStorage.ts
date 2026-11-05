@@ -48,7 +48,7 @@ function parse(raw: string | null): LoadResult {
   }
   if (!isRecord(data) || !Object.hasOwn(data, 'versjon')) return { status: 'corrupt', workouts: [] }
   const { versjon, okter } = data
-  if (typeof versjon === 'number' && Number.isInteger(versjon) && versjon > SCHEMA_VERSION) {
+  if (typeof versjon === 'number' && versjon > SCHEMA_VERSION) {
     return { status: 'unsupported-version', workouts: [] }
   }
   if (versjon !== SCHEMA_VERSION || !Object.hasOwn(data, 'okter') || !Array.isArray(okter)) {
@@ -57,10 +57,11 @@ function parse(raw: string | null): LoadResult {
 
   const workouts: Workout[] = []
   const ids = new Set<string>()
-  let corrupt = Object.keys(data).length !== 2 || okter.length > MAX_WORKOUTS
-  for (const item of okter.slice(0, MAX_WORKOUTS)) {
+  let corrupt = Object.keys(data).length !== 2
+  // Beholder de første 5 000 gyldige; resten regnes som ødelagt.
+  for (const item of okter) {
     const workout = validateStoredWorkout(item)
-    if (workout && !ids.has(workout.id)) {
+    if (workout && !ids.has(workout.id) && workouts.length < MAX_WORKOUTS) {
       ids.add(workout.id)
       workouts.push(workout)
     } else {

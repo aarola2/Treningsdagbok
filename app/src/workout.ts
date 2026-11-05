@@ -43,8 +43,15 @@ function dateError(value: unknown, today: string | null): string | undefined {
 }
 
 // C0/C1-kontrolltegn og bidi-overstyring/-isolering kan brukes til visuell forfalskning.
+// Ensomme surrogater er ugyldig Unicode og blir 6 tegn hver i JSON.
 function isForbiddenCodePoint(code: number): boolean {
-  return code <= 0x1f || (code >= 0x7f && code <= 0x9f) || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)
+  return (
+    code <= 0x1f ||
+    (code >= 0x7f && code <= 0x9f) ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069) ||
+    (code >= 0xd800 && code <= 0xdfff)
+  )
 }
 
 function typeError(value: unknown): string | undefined {

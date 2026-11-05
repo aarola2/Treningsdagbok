@@ -50,6 +50,7 @@ describe('validateWorkoutInput', () => {
     ['50 tegn etter trimming', ` ${'x'.repeat(50)} `],
     ['50 emoji (kodepunkter)', '🏃'.repeat(50)],
     ['norske bokstaver', 'Æøå-trening'],
+    ['tegn rett utenfor de forbudte områdene', 'a~b c d e⁥f⁪g퟿hi\u{10000}'],
   ])('godtar type med %s', (_, type) => {
     expect(errorsFor({ type })).toEqual({})
   })
@@ -64,8 +65,13 @@ describe('validateWorkoutInput', () => {
     ['siste C0-kontrolltegn', 'Løp\u001Fing', 'Typen inneholder tegn som ikke er tillatt.'],
     ['DEL', 'Løp\u007Fing', 'Typen inneholder tegn som ikke er tillatt.'],
     ['C1-kontrolltegn', 'Løp\u0085', 'Typen inneholder tegn som ikke er tillatt.'],
-    ['bidi-overstyring', 'Løp‮ing', 'Typen inneholder tegn som ikke er tillatt.'],
-    ['bidi-isolering', 'Løp⁦ing', 'Typen inneholder tegn som ikke er tillatt.'],
+    ['siste C1-kontrolltegn', 'Løp\u009Fing', 'Typen inneholder tegn som ikke er tillatt.'],
+    ['første bidi-overstyring', 'Løp‪ing', 'Typen inneholder tegn som ikke er tillatt.'],
+    ['siste bidi-overstyring', 'Løp‮ing', 'Typen inneholder tegn som ikke er tillatt.'],
+    ['første bidi-isolering', 'Løp⁦ing', 'Typen inneholder tegn som ikke er tillatt.'],
+    ['siste bidi-isolering', 'Løp⁩ing', 'Typen inneholder tegn som ikke er tillatt.'],
+    ['ensomt høyt surrogat', 'Løp\uD800ing', 'Typen inneholder tegn som ikke er tillatt.'],
+    ['ensomt lavt surrogat', 'Løp\uDFFFing', 'Typen inneholder tegn som ikke er tillatt.'],
     ['tall', 42, 'Oppgi type trening.'],
     ['null', null, 'Oppgi type trening.'],
   ])('avviser type %s', (_, type, message) => {
@@ -115,6 +121,11 @@ describe('validateStoredWorkout', () => {
     ['manglende felt', { id, dato: valid.dato, type: valid.type }],
     ['__proto__-felt', JSON.parse(`{"id":"${id}","dato":"2026-11-05","type":"Løping","varighet":45,"__proto__":{"x":1}}`) as unknown],
     ['ugyldig id', { ...stored, id: 'ikke-en-uuid' }],
+    ['tegn foran id', { ...stored, id: `x${id}` }],
+    ['tegn bak id', { ...stored, id: `${id}x` }],
+    ['store bokstaver i id', { ...stored, id: id.toUpperCase() }],
+    ['store bokstaver i siste del av id', { ...stored, id: id.slice(0, 24) + id.slice(24).toUpperCase() }],
+    ['type med ensomt surrogat', { ...stored, type: '\uD800' }],
     ['id som tall', { ...stored, id: 1 }],
     ['utrimmet type', { ...stored, type: ' Løping' }],
     ['type med kontrolltegn', { ...stored, type: 'a\u0007' }],
