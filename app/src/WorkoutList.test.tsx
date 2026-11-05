@@ -102,11 +102,14 @@ describe('WorkoutList', () => {
       await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
       expect(dataRows()).toHaveLength(2 * PAGE_SIZE)
       expect(screen.getByRole('status')).toHaveTextContent('Viser 200 av 250 økter.')
+      expect(dataRows()[PAGE_SIZE]).toHaveFocus()
 
       await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
       expect(dataRows()).toHaveLength(250)
       expect(screen.getByRole('status')).toHaveTextContent('Viser 250 av 250 økter.')
       expect(screen.queryByRole('button', { name: 'Vis flere økter' })).not.toBeInTheDocument()
+      // Knappen er borte, men fokus står på første nye rad i stedet for å falle til body.
+      expect(dataRows()[2 * PAGE_SIZE]).toHaveFocus()
     })
 
     it('viser de nyeste øktene på første side', () => {

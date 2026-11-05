@@ -161,6 +161,8 @@ test('«Vis flere økter» viser neste side og kan brukes med tastatur', async (
   await expect(rows).toHaveCount(151)
   await expect(page.getByRole('status').filter({ hasText: 'Viser' })).toHaveText('Viser 150 av 150 økter.')
   await expect(more).toHaveCount(0)
+  // Fokus går ikke tapt når knappen forsvinner, men står på første nye rad.
+  await expect(rows.nth(101)).toBeFocused()
   await expectNoAxeViolations(page)
   await attachScreenshot(page, testInfo, 'vis-flere')
 })

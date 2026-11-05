@@ -1,4 +1,5 @@
-import { useId, useMemo, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { Workout } from './workout'
 import type { LoadResult } from './workoutStorage'
 
@@ -43,6 +44,17 @@ export function WorkoutList({ list }: { list: LoadResult }) {
   const sorted = useMemo(() => sortNewestFirst(list.workouts), [list.workouts])
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const shown = sorted.slice(0, visibleCount)
+  const bodyRef = useRef<HTMLTableSectionElement>(null)
+
+  // Fokus til første nye rad: brukeren havner ved det nye innholdet, og fokus går ikke tapt når knappen
+  // forsvinner etter siste side.
+  function showMore() {
+    const firstNew = shown.length
+    flushSync(() => {
+      setVisibleCount((count) => count + PAGE_SIZE)
+    })
+    bodyRef.current?.rows[firstNew]?.focus()
+  }
   const message = statusMessage(list)
 
   return (
@@ -61,9 +73,9 @@ export function WorkoutList({ list }: { list: LoadResult }) {
               <th scope="col">Varighet</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={bodyRef}>
             {shown.map((workout) => (
-              <tr key={workout.id}>
+              <tr key={workout.id} tabIndex={-1}>
                 <td>
                   <time dateTime={workout.dato}>{formatDate(workout.dato)}</time>
                 </td>
@@ -84,9 +96,7 @@ export function WorkoutList({ list }: { list: LoadResult }) {
             <button
               type="button"
               className="secondary"
-              onClick={() => {
-                setVisibleCount((count) => count + PAGE_SIZE)
-              }}
+              onClick={showMore}
             >
               Vis flere økter
             </button>

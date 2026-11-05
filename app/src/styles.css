@@ -157,6 +157,11 @@ main > section + section {
   border-bottom: 1px solid var(--border);
 }
 
+/* Rader får fokus programmatisk etter «Vis flere økter». */
+.workout-table tr:focus-visible {
+  outline-offset: -3px;
+}
+
 .workout-table th:first-child,
 .workout-table td:first-child {
   padding-left: 0;
