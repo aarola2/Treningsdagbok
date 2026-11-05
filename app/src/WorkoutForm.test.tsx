@@ -257,7 +257,7 @@ describe('WorkoutForm', () => {
       expect(first).not.toBeInTheDocument()
     })
 
-    it('fjerner statusmeldingen når lagringen feiler rett etter en vellykket lagring', async () => {
+    it('statusmeldingen kommer ikke tilbake når neste lagring feiler', async () => {
       const { fill, submit } = setup()
       await fill({ type: 'Løping', varighet: '45' })
       await submit()
@@ -404,13 +404,35 @@ describe('WorkoutForm', () => {
       expect(screen.getByRole('status')).toHaveTextContent('«Løping» er lagret.')
     })
 
-    it('en ny innsending rett etter bekreftelsen lagrer ikke på nytt', async () => {
-      const { user, submit } = await submitWithCorruptData()
+    it('en ny innsending rett etter bekreftelsen ignoreres uten feltfeil', async () => {
+      const { user, fields, submit } = await submitWithCorruptData()
       await user.click(screen.getByRole('button', { name: 'Fjern ødelagte data og lagre' }))
       await submit()
       expect(loadWorkouts().workouts).toHaveLength(2)
       expect(screen.getByRole('status')).toHaveTextContent('«Løping» er lagret.')
+      expect(fields.type).not.toHaveAttribute('aria-invalid')
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('viser grensefeilen direkte uten dialog når 5 000 gyldige økter allerede er lagret', async () => {
+      const okter = Array.from({ length: MAX_WORKOUTS }, (_, n) => ({ ...valid, id: storedId(n + 10) }))
+      const atLimit = JSON.stringify({ versjon: 1, okter: [...okter, 'tull'] })
+      localStorage.setItem(STORAGE_KEY, atLimit)
+      const { fill, submit } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await submit()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('Du har nådd grensen på 5 000 økter. Økten ble ikke lagret.')
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(atLimit)
+    })
+
+    it('åpner dialogen når 4 999 gyldige økter beholdes', async () => {
+      const okter = Array.from({ length: MAX_WORKOUTS - 1 }, (_, n) => ({ ...valid, id: storedId(n + 10) }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [...okter, 'tull'] }))
+      const { fill, submit } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await submit()
+      expect(screen.getByRole('dialog')).toHaveAccessibleDescription(/4999 gyldige økter beholdes/)
     })
   })
 

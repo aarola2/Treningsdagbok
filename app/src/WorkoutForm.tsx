@@ -4,7 +4,7 @@ import { flushSync } from 'react-dom'
 import { ConfirmDialog } from './ConfirmDialog'
 import { todayLocal, validateWorkoutInput } from './workout'
 import type { FieldErrors, WorkoutField } from './workout'
-import { addWorkout, loadWorkouts } from './workoutStorage'
+import { MAX_WORKOUTS, addWorkout, loadWorkouts } from './workoutStorage'
 import type { WriteResult } from './workoutStorage'
 
 type StorageError = Exclude<Extract<WriteResult, { ok: false }>['error'], 'invalid' | 'corrupt'>
@@ -59,7 +59,6 @@ export function WorkoutForm() {
     varighet: useRef<HTMLInputElement>(null),
   }
 
-  // save() kjøres bare når statusmeldingen er tom (se handleSubmit), så den trenger ikke tømmes ved feil.
   function showFieldErrors(fieldErrors: FieldErrors) {
     // Feilene må være i DOM-en før fokus flyttes, slik at skjermlesere leser dem.
     flushSync(() => {
@@ -70,6 +69,12 @@ export function WorkoutForm() {
     if (first) inputRefs[first].current?.focus()
   }
 
+  function showStorageError(error: StorageError) {
+    messageKey.current += 1
+    setStorageError({ text: storageErrorMessages[error], key: messageKey.current })
+  }
+
+  // Kjøres bare når statusmeldingen er tom (se handleSubmit), så den trenger ikke tømmes ved feil.
   function save(discardInvalid: boolean) {
     // Tomt felt blir 0 og avvises av valideringen.
     const input = { ...values, varighet: Number(values.varighet) }
@@ -93,12 +98,17 @@ export function WorkoutForm() {
     }
     setErrors({})
     if (result.error === 'corrupt') {
+      const kept = loadWorkouts().workouts.length
+      // Ved grensen kan den nye økten ikke lagres selv etter forkasting, så dialogen ville lovet for mye.
+      if (kept >= MAX_WORKOUTS) {
+        showStorageError('limit')
+        return
+      }
       setStorageError(null)
-      setKeptCount(loadWorkouts().workouts.length)
+      setKeptCount(kept)
       return
     }
-    messageKey.current += 1
-    setStorageError({ text: storageErrorMessages[result.error], key: messageKey.current })
+    showStorageError(result.error)
   }
 
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {

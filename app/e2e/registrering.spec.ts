@@ -130,9 +130,11 @@ test.describe('ødelagte lagrede data', () => {
       okter: [valid, { id: expect.any(String), dato: expect.any(String), type: 'Svømming', varighet: 60 }],
     })
 
-    // En gjentatt Enter på knappen lagrer ikke økten en gang til.
+    // En gjentatt Enter på knappen lagrer ikke økten en gang til og gir ingen feltfeil.
     await page.keyboard.press('Enter')
     await expect(page.getByRole('status')).toHaveText('«Svømming» er lagret.')
+    await expect(page.getByRole('button', { name: 'Lagre økt' })).toBeFocused()
+    await expect(page.getByLabel('Type')).not.toHaveAttribute('aria-invalid')
     expect(await storedData(page)).toMatchObject({ okter: [valid, { type: 'Svømming' }] })
   })
 
