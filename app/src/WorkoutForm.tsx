@@ -3,7 +3,7 @@ import type { InputHTMLAttributes, SubmitEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { ConfirmDialog } from './ConfirmDialog'
 import { todayLocal, validateWorkoutInput } from './workout'
-import type { FieldErrors, WorkoutField } from './workout'
+import type { FieldErrors, Workout, WorkoutField } from './workout'
 import { MAX_WORKOUTS, addWorkout, loadWorkouts } from './workoutStorage'
 import type { WriteResult } from './workoutStorage'
 
@@ -42,7 +42,7 @@ function corruptDialogText(kept: number) {
   }
 }
 
-export function WorkoutForm() {
+export function WorkoutForm({ onSaved }: { onSaved?: (workouts: Workout[]) => void }) {
   const today = todayLocal()
   const [values, setValues] = useState<Record<WorkoutField, string>>({ dato: today, type: '', varighet: '' })
   const [errors, setErrors] = useState<FieldErrors>({})
@@ -90,6 +90,7 @@ export function WorkoutForm() {
       setErrors({})
       setStorageError(null)
       setStatus(`«${validation.value.type}» er lagret.`)
+      onSaved?.(result.workouts)
       return
     }
     if (result.error === 'invalid') {

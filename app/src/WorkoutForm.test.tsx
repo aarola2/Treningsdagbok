@@ -77,6 +77,20 @@ describe('WorkoutForm', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('sender oppdatert liste til onSaved bare ved vellykket lagring', async () => {
+    const onSaved = vi.fn()
+    const user = userEvent.setup()
+    render(<WorkoutForm onSaved={onSaved} />)
+    await user.click(screen.getByRole('button', { name: 'Lagre økt' }))
+    expect(onSaved).not.toHaveBeenCalled()
+
+    await user.type(screen.getByLabelText('Type'), 'Løping')
+    await user.type(screen.getByLabelText('Varighet (minutter)'), '45')
+    await user.click(screen.getByRole('button', { name: 'Lagre økt' }))
+    expect(onSaved).toHaveBeenCalledOnce()
+    expect(onSaved).toHaveBeenCalledWith(loadWorkouts().workouts)
+  })
+
   it('lagrer med Enter i et felt', async () => {
     const { user, fields, fill } = setup()
     await fill({ type: 'Sykling', varighet: '30' })
