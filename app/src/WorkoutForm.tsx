@@ -1,10 +1,10 @@
 import { useId, useRef, useState } from 'react'
-import type { SubmitEvent } from 'react'
+import type { InputHTMLAttributes, SubmitEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { ConfirmDialog } from './ConfirmDialog'
 import { todayLocal, validateWorkoutInput } from './workout'
 import type { FieldErrors, WorkoutField } from './workout'
-import { addWorkout } from './workoutStorage'
+import { addWorkout, loadWorkouts } from './workoutStorage'
 import type { WriteResult } from './workoutStorage'
 
 type StorageError = Exclude<Extract<WriteResult, { ok: false }>['error'], 'invalid' | 'corrupt'>
@@ -19,27 +19,52 @@ const storageErrorMessages: Record<StorageError, string> = {
 
 const fieldOrder: WorkoutField[] = ['dato', 'type', 'varighet']
 
+// Ny nøkkel for hver feilmelding gir en ny DOM-node, slik at skjermlesere leser opp også en gjentatt, lik melding.
+// Statusmeldingen trenger ikke nøkkel: den tømmes alltid (feltendring) før neste lagring.
+interface Message {
+  text: string
+  key: number
+}
+
+function corruptDialogText(kept: number) {
+  if (kept === 0) {
+    return {
+      title: 'De lagrede dataene kan ikke leses',
+      confirmLabel: 'Fjern alle lagrede data og lagre',
+      text: 'Ingen av de lagrede øktene kan leses. Hvis du fortsetter, fjernes alle lagrede data, og bare den nye økten lagres.',
+    }
+  }
+  const keptText = kept === 1 ? '1 gyldig økt' : `${String(kept)} gyldige økter`
+  return {
+    title: 'Noen lagrede data er ødelagte',
+    confirmLabel: 'Fjern ødelagte data og lagre',
+    text: `Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene. ${keptText} beholdes, og den nye økten lagres.`,
+  }
+}
+
 export function WorkoutForm() {
   const today = todayLocal()
   const [values, setValues] = useState<Record<WorkoutField, string>>({ dato: today, type: '', varighet: '' })
   const [errors, setErrors] = useState<FieldErrors>({})
   const [status, setStatus] = useState('')
-  const [storageError, setStorageError] = useState('')
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [storageError, setStorageError] = useState<Message | null>(null)
+  // Antall gyldige økter som beholdes hvis brukeren bekrefter; null når dialogen er lukket.
+  const [keptCount, setKeptCount] = useState<number | null>(null)
+  const messageKey = useRef(0)
   const headingId = useId()
-  const errorIdPrefix = useId()
+  const idPrefix = useId()
   const inputRefs = {
     dato: useRef<HTMLInputElement>(null),
     type: useRef<HTMLInputElement>(null),
     varighet: useRef<HTMLInputElement>(null),
   }
 
+  // save() kjøres bare når statusmeldingen er tom (se handleSubmit), så den trenger ikke tømmes ved feil.
   function showFieldErrors(fieldErrors: FieldErrors) {
     // Feilene må være i DOM-en før fokus flyttes, slik at skjermlesere leser dem.
     flushSync(() => {
-      setStatus('')
       setErrors(fieldErrors)
-      setStorageError('')
+      setStorageError(null)
     })
     const first = fieldOrder.find((field) => fieldErrors[field])
     if (first) inputRefs[first].current?.focus()
@@ -58,7 +83,7 @@ export function WorkoutForm() {
     if (result.ok) {
       setValues((current) => ({ ...current, type: '', varighet: '' }))
       setErrors({})
-      setStorageError('')
+      setStorageError(null)
       setStatus(`«${validation.value.type}» er lagret.`)
       return
     }
@@ -66,34 +91,38 @@ export function WorkoutForm() {
       showFieldErrors(result.errors)
       return
     }
-    setStatus('')
     setErrors({})
     if (result.error === 'corrupt') {
-      setStorageError('')
-      setConfirmOpen(true)
+      setStorageError(null)
+      setKeptCount(loadWorkouts().workouts.length)
       return
     }
-    setStorageError(storageErrorMessages[result.error])
+    messageKey.current += 1
+    setStorageError({ text: storageErrorMessages[result.error], key: messageKey.current })
   }
 
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
+    // Statusmeldingen står til et felt endres; en ny innsending før det (dobbeltklikk, Enter) er en gjentakelse.
+    if (status) return
     save(false)
   }
 
-  function field(name: WorkoutField, label: string, inputProps: Record<string, string | number>) {
+  function field(name: WorkoutField, label: string, inputProps: InputHTMLAttributes<HTMLInputElement>) {
     const error = errors[name]
-    const errorId = `${errorIdPrefix}-${name}`
+    const inputId = `${idPrefix}-${name}`
+    const errorId = `${inputId}-feil`
     return (
       <div className="field">
-        <label htmlFor={`${errorIdPrefix}-${name}-input`}>{label}</label>
+        <label htmlFor={inputId}>{label}</label>
         <input
-          id={`${errorIdPrefix}-${name}-input`}
+          id={inputId}
           ref={inputRefs[name]}
           value={values[name]}
           onChange={(event) => {
             const { value } = event.target
             setValues((current) => ({ ...current, [name]: value }))
+            setStatus('')
           }}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
@@ -108,16 +137,18 @@ export function WorkoutForm() {
     )
   }
 
+  const dialog = corruptDialogText(keptCount ?? 0)
+
   return (
-    <section aria-labelledby={headingId}>
+    <section>
       <h2 id={headingId}>Registrer økt</h2>
       <form aria-labelledby={headingId} noValidate onSubmit={handleSubmit}>
         {field('dato', 'Dato', { type: 'date', max: today })}
         {field('type', 'Type', { type: 'text', autoComplete: 'off' })}
         {field('varighet', 'Varighet (minutter)', { type: 'number', inputMode: 'numeric', min: 1, max: 1440, step: 1 })}
         {storageError && (
-          <p role="alert" className="form-error">
-            {storageError}
+          <p key={storageError.key} role="alert" className="form-error">
+            {storageError.text}
           </p>
         )}
         <button type="submit">Lagre økt</button>
@@ -126,19 +157,18 @@ export function WorkoutForm() {
         </p>
       </form>
       <ConfirmDialog
-        open={confirmOpen}
-        title="Noen lagrede data er ødelagte"
-        confirmLabel="Fjern ødelagte data og lagre"
+        open={keptCount !== null}
+        title={dialog.title}
+        confirmLabel={dialog.confirmLabel}
         onConfirm={() => {
-          setConfirmOpen(false)
+          setKeptCount(null)
           save(true)
         }}
         onCancel={() => {
-          setConfirmOpen(false)
+          setKeptCount(null)
         }}
       >
-        Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene. Gyldige økter
-        beholdes, og den nye økten lagres.
+        {dialog.text}
       </ConfirmDialog>
     </section>
   )

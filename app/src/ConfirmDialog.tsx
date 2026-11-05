@@ -41,7 +41,7 @@ export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, 
       }}
     >
       <h2 id={titleId}>{title}</h2>
-      <p id={descriptionId}>{children}</p>
+      <div id={descriptionId}>{children}</div>
       <div className="dialog-actions">
         <button type="button" onClick={onConfirm}>
           {confirmLabel}

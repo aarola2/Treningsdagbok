@@ -228,16 +228,10 @@ describe('WorkoutForm', () => {
       expect(localStorage.getItem(STORAGE_KEY)).toBe(newer)
     })
 
-    it('fjerner forrige statusmelding og feltfeil når lagringen feiler', async () => {
+    it('fjerner gamle feltfeil når lagringen feiler', async () => {
       const { fields, fill, submit } = setup()
       await submit()
-      await fill({ type: 'Løping', varighet: '45' })
-      await submit()
-      expect(screen.getByRole('status')).toHaveTextContent('«Løping» er lagret.')
-
-      await submit()
       expect(fields.type).toHaveAttribute('aria-invalid', 'true')
-      expect(screen.getByRole('status')).toBeEmptyDOMElement()
 
       vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new DOMException('Full', 'QuotaExceededError')
@@ -246,6 +240,21 @@ describe('WorkoutForm', () => {
       await submit()
       expect(screen.getByRole('alert')).toBeInTheDocument()
       expect(fields.type).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('lager en ny meldingsnode når samme lagringsfeil gjentas, slik at den leses opp igjen', async () => {
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('Full', 'QuotaExceededError')
+      })
+      const { fill, submit } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await submit()
+      const first = screen.getByRole('alert')
+      await submit()
+      const second = screen.getByRole('alert')
+      expect(second).toHaveTextContent(first.textContent)
+      expect(second).not.toBe(first)
+      expect(first).not.toBeInTheDocument()
     })
 
     it('fjerner statusmeldingen når lagringen feiler rett etter en vellykket lagring', async () => {
@@ -301,14 +310,39 @@ describe('WorkoutForm', () => {
       return helpers
     }
 
-    it('åpner en dialog som forklarer at ødelagte data fjernes', async () => {
+    it('åpner en dialog som forklarer at ødelagte data fjernes og hvor mange økter som beholdes', async () => {
       await submitWithCorruptData()
       const dialog = screen.getByRole('dialog', { name: 'Noen lagrede data er ødelagte' })
       expect(dialog).toHaveAccessibleDescription(
-        'Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene. Gyldige økter beholdes, og den nye økten lagres.',
+        'Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene. 1 gyldig økt beholdes, og den nye økten lagres.',
       )
       expect(screen.getByRole('button', { name: 'Avbryt' })).toHaveFocus()
       expect(localStorage.getItem(STORAGE_KEY)).toBe(corrupt)
+    })
+
+    it('oppgir antallet i flertall når flere gyldige økter beholdes', async () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ versjon: 1, okter: [valid, { ...valid, id: storedId(3) }, { ...valid, id: storedId(2), notat: 'x' }] }),
+      )
+      const { fill, submit } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await submit()
+      expect(screen.getByRole('dialog')).toHaveAccessibleDescription(/2 gyldige økter beholdes/)
+    })
+
+    it('sier tydelig at alle data fjernes når ingen økter kan leses', async () => {
+      localStorage.setItem(STORAGE_KEY, '{')
+      const { user, fill, submit } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await submit()
+      const dialog = screen.getByRole('dialog', { name: 'De lagrede dataene kan ikke leses' })
+      expect(dialog).toHaveAccessibleDescription(
+        'Ingen av de lagrede øktene kan leses. Hvis du fortsetter, fjernes alle lagrede data, og bare den nye økten lagres.',
+      )
+      expect(localStorage.getItem(STORAGE_KEY)).toBe('{')
+      await user.click(screen.getByRole('button', { name: 'Fjern alle lagrede data og lagre' }))
+      expect(loadWorkouts().workouts.map((workout) => workout.type)).toEqual(['Løping'])
     })
 
     it('viser feltfeil uten dialog når input er ugyldig, og rådata er uendret', async () => {
@@ -369,5 +403,59 @@ describe('WorkoutForm', () => {
       expect(workouts).toEqual([valid, { id: expect.any(String) as string, dato: '2026-11-05', type: 'Løping', varighet: 45 }])
       expect(screen.getByRole('status')).toHaveTextContent('«Løping» er lagret.')
     })
+
+    it('en ny innsending rett etter bekreftelsen lagrer ikke på nytt', async () => {
+      const { user, submit } = await submitWithCorruptData()
+      await user.click(screen.getByRole('button', { name: 'Fjern ødelagte data og lagre' }))
+      await submit()
+      expect(loadWorkouts().workouts).toHaveLength(2)
+      expect(screen.getByRole('status')).toHaveTextContent('«Løping» er lagret.')
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('gjentatte innsendinger', () => {
+    it('dobbeltklikk lagrer én gang og beholder bekreftelsen uten feltfeil', async () => {
+      const { user, fields, fill } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await user.dblClick(screen.getByRole('button', { name: 'Lagre økt' }))
+      expect(loadWorkouts().workouts).toHaveLength(1)
+      expect(screen.getByRole('status')).toHaveTextContent('«Løping» er lagret.')
+      expect(fields.type).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('statusmeldingen fjernes når et felt endres, og neste innsending behandles normalt', async () => {
+      const { user, fields, fill, submit } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await submit()
+      await user.type(fields.type, 'S')
+      expect(screen.getByRole('status')).toBeEmptyDOMElement()
+      await submit()
+      expect(fields.varighet).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('statusområdet tømmes mellom to lagringer av samme type, slik at den andre leses opp', async () => {
+      const { fill, submit } = setup()
+      await fill({ type: 'Løping', varighet: '45' })
+      await submit()
+      const status = screen.getByRole('status')
+      expect(status).toHaveTextContent('«Løping» er lagret.')
+      await fill({ type: 'Løping', varighet: '30' })
+      expect(status).toBeEmptyDOMElement()
+      await submit()
+      expect(status).toHaveTextContent('«Løping» er lagret.')
+      expect(loadWorkouts().workouts).toHaveLength(2)
+    })
+  })
+
+  it('feilmeldingen er koblet til feltet allerede når fokus flyttes dit', async () => {
+    const { fields, submit } = setup()
+    let describedAtFocus: string | null | undefined
+    fields.type.addEventListener('focus', () => {
+      const id = fields.type.getAttribute('aria-describedby')
+      describedAtFocus = id === null ? null : document.getElementById(id)?.textContent
+    })
+    await submit()
+    expect(describedAtFocus).toBe('Oppgi type trening.')
   })
 })

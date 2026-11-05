@@ -1,7 +1,6 @@
 /* Farger er valgt for kontrast ≥ 4.5:1 mot hvit (tekst) og ≥ 3:1 (fokus, kanter). */
 :root {
   --text: #1f2328;
-  --muted: #57606a;
   --background: #ffffff;
   --surface: #f6f8fa;
   --border: #6e7781;
@@ -96,6 +95,13 @@ button.secondary {
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* Meldinger kan inneholde brukerens tekst uten mellomrom; bryt den i stedet for å gi horisontal rulling. */
+.field-error,
+.form-error,
+.status {
+  overflow-wrap: anywhere;
 }
 
 .field-error,

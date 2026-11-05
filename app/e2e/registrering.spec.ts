@@ -124,20 +124,84 @@ test.describe('ødelagte lagrede data', () => {
 
     await expect(page.getByRole('dialog')).toBeHidden()
     await expect(page.getByRole('status')).toHaveText('«Svømming» er lagret.')
+    await expect(page.getByRole('button', { name: 'Lagre økt' })).toBeFocused()
     expect(await storedData(page)).toEqual({
       versjon: 1,
       okter: [valid, { id: expect.any(String), dato: expect.any(String), type: 'Svømming', varighet: 60 }],
     })
+
+    // En gjentatt Enter på knappen lagrer ikke økten en gang til.
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('status')).toHaveText('«Svømming» er lagret.')
+    expect(await storedData(page)).toMatchObject({ okter: [valid, { type: 'Svømming' }] })
+  })
+
+  test('klikk på Avbryt gir fokus tilbake til Lagre økt', async ({ page }) => {
+    await page.getByRole('button', { name: 'Avbryt' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Lagre økt' })).toBeFocused()
   })
 })
 
-test('kan brukes uten horisontal rulling ved 320 px bredde', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 320, height: 800 })
+test('viser en lesbar feilmelding når grensen på 5 000 økter er nådd', async ({ page }, testInfo) => {
   await page.goto('./')
+  await page.evaluate((key) => {
+    const okter = Array.from({ length: 5000 }, (_, n) => ({
+      id: `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`,
+      dato: '2026-01-01',
+      type: 'Syntetisk',
+      varighet: 30,
+    }))
+    localStorage.setItem(key, JSON.stringify({ versjon: 1, okter }))
+  }, storageKey)
+  await page.reload()
+  await page.getByLabel('Type').fill('Løping')
+  await page.getByLabel('Varighet (minutter)').fill('45')
   await page.getByRole('button', { name: 'Lagre økt' }).click()
-  await expect(page.getByLabel('Type')).toBeFocused()
 
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-  expect(overflow).toBeLessThanOrEqual(0)
-  await attachScreenshot(page, testInfo, 'smal-320px')
+  await expect(page.getByRole('alert')).toHaveText('Du har nådd grensen på 5 000 økter. Økten ble ikke lagret.')
+  await expect(page.getByLabel('Type')).toHaveValue('Løping')
+  await expectNoAxeViolations(page)
+  await attachScreenshot(page, testInfo, 'grense-nadd')
+})
+
+test.describe('320 px bredde', () => {
+  test.use({ viewport: { width: 320, height: 800 } })
+
+  async function expectNoHorizontalScroll(page: Page) {
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+  }
+
+  test('feilmeldinger gir ikke horisontal rulling', async ({ page }, testInfo) => {
+    await page.goto('./')
+    await page.getByRole('button', { name: 'Lagre økt' }).click()
+    await expect(page.getByLabel('Type')).toBeFocused()
+    await expectNoHorizontalScroll(page)
+    await attachScreenshot(page, testInfo, 'smal-320px')
+  })
+
+  test('statusmelding med 50 tegn uten mellomrom gir ikke horisontal rulling', async ({ page }) => {
+    await page.goto('./')
+    await page.getByLabel('Type').fill('x'.repeat(50))
+    await page.getByLabel('Varighet (minutter)').fill('10')
+    await page.getByRole('button', { name: 'Lagre økt' }).click()
+    await expect(page.getByRole('status')).toContainText('er lagret.')
+    await expectNoHorizontalScroll(page)
+  })
+
+  test('dialogen gir ikke horisontal rulling', async ({ page }, testInfo) => {
+    await page.goto('./')
+    await page.evaluate((key) => {
+      localStorage.setItem(key, '{')
+    }, storageKey)
+    await page.reload()
+    await page.getByLabel('Type').fill('Løping')
+    await page.getByLabel('Varighet (minutter)').fill('45')
+    await page.getByRole('button', { name: 'Lagre økt' }).click()
+    await expect(page.getByRole('dialog', { name: 'De lagrede dataene kan ikke leses' })).toBeVisible()
+    await expectNoHorizontalScroll(page)
+    await expectNoAxeViolations(page)
+    await attachScreenshot(page, testInfo, 'smal-320px-dialog')
+  })
 })
