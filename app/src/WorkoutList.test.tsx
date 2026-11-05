@@ -1,8 +1,9 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Workout } from './workout'
 import { PAGE_SIZE, WorkoutList } from './WorkoutList'
+import { STORAGE_KEY, loadWorkouts } from './workoutStorage'
 import type { LoadResult } from './workoutStorage'
 
 function workout(n: number, dato: string, type = `Økt ${String(n)}`, varighet = 30): Workout {
@@ -11,6 +12,11 @@ function workout(n: number, dato: string, type = `Økt ${String(n)}`, varighet =
 
 function renderList(list: LoadResult) {
   return render(<WorkoutList list={list} />)
+}
+
+// Type-cellen inneholder også knappene Rediger/Slett; selve typen står i .workout-type.
+function typeText(row: HTMLElement) {
+  return within(row).getAllByRole('cell')[1]?.querySelector('.workout-type')?.textContent
 }
 
 function dataRows() {
@@ -29,7 +35,11 @@ describe('WorkoutList', () => {
       'Varighet',
     ])
     const cells = within(dataRows()[0] as HTMLElement).getAllByRole('cell')
-    expect(cells.map((cell) => cell.textContent)).toEqual(['5. nov. 2026', 'Løping', '45\u00A0min'])
+    expect([cells[0]?.textContent, typeText(dataRows()[0] as HTMLElement), cells[2]?.textContent]).toEqual([
+      '5. nov. 2026',
+      'Løping',
+      '45\u00A0min',
+    ])
     expect(within(cells[0] as HTMLElement).getByText('5. nov. 2026').closest('time')).toHaveAttribute(
       'datetime',
       '2026-11-05',
@@ -45,7 +55,7 @@ describe('WorkoutList', () => {
       workout(5, '2025-12-31', 'E'),
     ]
     renderList({ status: 'ok', workouts })
-    expect(dataRows().map((row) => within(row).getAllByRole('cell')[1]?.textContent)).toEqual(['D', 'B', 'C', 'A', 'E'])
+    expect(dataRows().map(typeText)).toEqual(['D', 'B', 'C', 'A', 'E'])
   })
 
   it.each([
@@ -55,7 +65,7 @@ describe('WorkoutList', () => {
     ['blandet omvendt', ['2026-12-01', '2026-01-01', '2026-06-01']],
   ])('sorterer riktig uansett lagringsrekkefølge (%s)', (_, datoer) => {
     renderList({ status: 'ok', workouts: datoer.map((dato, n) => workout(n, dato, dato)) })
-    expect(dataRows().map((row) => within(row).getAllByRole('cell')[1]?.textContent)).toEqual([
+    expect(dataRows().map(typeText)).toEqual([
       '2026-12-01',
       '2026-06-01',
       '2026-01-01',
@@ -72,10 +82,8 @@ describe('WorkoutList', () => {
     await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
     await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
     const shown = dataRows().map((row) => {
-      const [dato, type] = within(row)
-        .getAllByRole('cell')
-        .map((cell) => cell.querySelector('time')?.getAttribute('datetime') ?? cell.textContent)
-      return { dato, n: Number(type?.replace('Økt ', '')) }
+      const dato = row.querySelector('time')?.getAttribute('datetime')
+      return { dato, n: Number(typeText(row)?.replace('Økt ', '')) }
     })
     const expected = workouts
       .map((w, n) => ({ dato: w.dato, n }))
@@ -115,7 +123,7 @@ describe('WorkoutList', () => {
     it('viser de nyeste øktene på første side', () => {
       const workouts = [...many(PAGE_SIZE), workout(999, '2026-12-24', 'Nyest')]
       renderList({ status: 'ok', workouts })
-      expect(within(dataRows()[0] as HTMLElement).getAllByRole('cell')[1]).toHaveTextContent('Nyest')
+      expect(typeText(dataRows()[0] as HTMLElement)).toBe('Nyest')
     })
 
     it('formaterer store antall med mellomrom', () => {
@@ -141,7 +149,7 @@ describe('WorkoutList', () => {
   it('viser feilmelding og fortsatt de gyldige øktene ved ødelagte data', () => {
     renderList({ status: 'corrupt', workouts: [workout(1, '2026-11-05', 'Gyldig')] })
     expect(screen.getByText('Noen lagrede data kan ikke leses. Bare gyldige økter vises.')).toBeInTheDocument()
-    expect(screen.getByRole('cell', { name: 'Gyldig' })).toBeInTheDocument()
+    expect(screen.getByText('Gyldig')).toBeInTheDocument()
     expect(screen.queryByText(emptyText)).not.toBeInTheDocument()
   })
 
@@ -173,7 +181,198 @@ describe('WorkoutList', () => {
       status: 'ok',
       workouts: [workout(1, '2026-11-05', '<img src=x onerror=alert(1)>')],
     })
-    expect(screen.getByRole('cell', { name: '<img src=x onerror=alert(1)>' })).toBeInTheDocument()
+    expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
+  })
+})
+
+describe('WorkoutList – rediger og slett', () => {
+  const target = workout(1, '2026-11-05', 'Løping', 45)
+  const other = workout(2, '2026-11-04', 'Yoga', 30)
+
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+      this.open = true
+    }
+    HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
+      this.open = false
+    }
+  })
+
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  function storeWorkouts(okter: unknown[]) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter }))
+  }
+
+  function renderActions(workouts = [target, other]) {
+    storeWorkouts(workouts)
+    const onEdit = vi.fn()
+    const onDeleted = vi.fn()
+    const user = userEvent.setup()
+    render(<WorkoutList list={{ status: 'ok', workouts }} onEdit={onEdit} onDeleted={onDeleted} />)
+    return { onEdit, onDeleted, user }
+  }
+
+  it('har knapper med navn som sier hvilken økt de gjelder', () => {
+    renderActions()
+    expect(screen.getByRole('button', { name: 'Rediger «Løping» 5. nov. 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rediger «Yoga» 4. nov. 2026' })).toBeInTheDocument()
+  })
+
+  it('Rediger sender økten til onEdit', async () => {
+    const { onEdit, user } = renderActions()
+    await user.click(screen.getByRole('button', { name: 'Rediger «Yoga» 4. nov. 2026' }))
+    expect(onEdit).toHaveBeenCalledWith(other)
+  })
+
+  it('Slett krever bekreftelse; Avbryt endrer ingenting', async () => {
+    const { onDeleted, user } = renderActions()
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    const dialog = screen.getByRole('dialog', { name: 'Slette økten?' })
+    expect(dialog).toHaveAccessibleDescription('«Løping» 5. nov. 2026, 45 min, slettes. Dette kan ikke angres.')
+    expect(screen.getByRole('button', { name: 'Avbryt' })).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'Avbryt' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(onDeleted).not.toHaveBeenCalled()
+    expect(loadWorkouts().workouts).toEqual([target, other])
+  })
+
+  it('Escape i slettedialogen endrer ingenting', async () => {
+    const { onDeleted, user } = renderActions()
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(onDeleted).not.toHaveBeenCalled()
+    expect(loadWorkouts().workouts).toHaveLength(2)
+  })
+
+  it('Bekreft sletter økten, melder listen og flytter fokus til en melding', async () => {
+    const { onDeleted, user } = renderActions()
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    expect(loadWorkouts().workouts).toEqual([other])
+    expect(onDeleted).toHaveBeenCalledWith([other], target.id)
+    expect(screen.getByText('«Løping» 5. nov. 2026 er slettet.')).toHaveFocus()
+  })
+
+  it('spør om forkasting av ødelagte data før sletting, og sletter etter bekreftelse', async () => {
+    const { onDeleted, user } = renderActions()
+    storeWorkouts([target, other, 'tull'])
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    expect(screen.getByRole('dialog', { name: 'Noen lagrede data er ødelagte' })).toHaveAccessibleDescription(
+      'Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene. 1 gyldig økt beholdes, og økten slettes.',
+    )
+    expect(onDeleted).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Fjern ødelagte data og slett' }))
+    expect(loadWorkouts()).toEqual({ status: 'ok', workouts: [other] })
+    expect(onDeleted).toHaveBeenCalledWith([other], target.id)
+  })
+
+  it('sier at ingen andre økter er lagret når bare økten som slettes er gyldig', async () => {
+    const { user } = renderActions([target])
+    storeWorkouts([target, 'tull'])
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    expect(screen.getByRole('dialog', { name: 'Noen lagrede data er ødelagte' })).toHaveAccessibleDescription(
+      'Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene, og økten slettes. Ingen andre gyldige økter er lagret.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Fjern ødelagte data og slett' }))
+    expect(loadWorkouts()).toEqual({ status: 'ok', workouts: [] })
+  })
+
+  it('avbrutt forkasting endrer ingenting', async () => {
+    const { onDeleted, user } = renderActions()
+    const corrupt = JSON.stringify({ versjon: 1, okter: [target, other, 'tull'] })
+    localStorage.setItem(STORAGE_KEY, corrupt)
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    await user.click(screen.getByRole('button', { name: 'Avbryt' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(corrupt)
+    expect(onDeleted).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [
+      'not-found',
+      () => {
+        storeWorkouts([other])
+      },
+      'Økten finnes ikke lenger, så den ble ikke slettet. Last inn siden på nytt.',
+    ],
+    [
+      'unsupported-version',
+      () => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 2, okter: [] }))
+      },
+      'Dataene er lagret av en nyere versjon av appen. Last inn siden på nytt. Økten ble ikke slettet.',
+    ],
+  ])('viser feilmelding med fokus ved %s', async (_, arrange, message) => {
+    const { onDeleted, user } = renderActions()
+    arrange()
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    expect(screen.getByRole('alert')).toHaveTextContent(message)
+    expect(screen.getByRole('alert')).toHaveFocus()
+    expect(onDeleted).not.toHaveBeenCalled()
+  })
+
+  it('viser feilmelding ved full lagring', async () => {
+    const { user } = renderActions()
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Full', 'QuotaExceededError')
+    })
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Lagringsplassen i nettleseren er full. Økten ble ikke slettet.')
+    vi.restoreAllMocks()
+  })
+
+  it('flytter fokus til Rediger-knappen for økten i focusTarget', () => {
+    const workouts = [target, other]
+    const { rerender } = render(<WorkoutList list={{ status: 'ok', workouts }} />)
+    rerender(<WorkoutList list={{ status: 'ok', workouts }} focusTarget={{ id: other.id, seq: 1 }} />)
+    expect(screen.getByRole('button', { name: 'Rediger «Yoga» 4. nov. 2026' })).toHaveFocus()
+  })
+
+  it('flytter fokus til overskriften når økten ikke vises på siden', () => {
+    const workouts = [target]
+    const { rerender } = render(<WorkoutList list={{ status: 'ok', workouts }} />)
+    rerender(<WorkoutList list={{ status: 'ok', workouts }} focusTarget={{ id: other.id, seq: 1 }} />)
+    expect(screen.getByRole('heading', { name: 'Mine økter' })).toHaveFocus()
+  })
+
+  it('viser en melding fra skjemaet og flytter fokus til den, også når samme tekst kommer igjen', () => {
+    const workouts = [target]
+    const { rerender } = render(<WorkoutList list={{ status: 'ok', workouts }} />)
+    rerender(<WorkoutList list={{ status: 'ok', workouts }} announcement={{ text: '«Løping» er oppdatert.', seq: 1 }} />)
+    const first = screen.getByText('«Løping» er oppdatert.')
+    expect(first).toHaveFocus()
+    rerender(<WorkoutList list={{ status: 'ok', workouts }} announcement={{ text: '«Løping» er oppdatert.', seq: 2 }} />)
+    const second = screen.getByText('«Løping» er oppdatert.')
+    expect(second).toHaveFocus()
+    expect(second).not.toBe(first)
+  })
+
+  it('fjerner forrige melding når en ny Rediger eller Slett starter', async () => {
+    const { user } = renderActions()
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    expect(screen.getByText('«Løping» 5. nov. 2026 er slettet.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Rediger «Yoga» 4. nov. 2026' }))
+    expect(screen.queryByText('«Løping» 5. nov. 2026 er slettet.')).not.toBeInTheDocument()
+  })
+
+  it('fjerner forrige melding når en ny sletting starter', async () => {
+    const { user } = renderActions()
+    await user.click(screen.getByRole('button', { name: 'Slett «Løping» 5. nov. 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+    await user.click(screen.getByRole('button', { name: 'Slett «Yoga» 4. nov. 2026' }))
+    expect(screen.queryByText('«Løping» 5. nov. 2026 er slettet.')).not.toBeInTheDocument()
   })
 })

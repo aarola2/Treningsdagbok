@@ -32,7 +32,7 @@ function typesInList() {
   return within(screen.getByRole('table', { name: 'Mine økter' }))
     .getAllByRole('row')
     .slice(1)
-    .map((row) => within(row).getAllByRole('cell')[1]?.textContent)
+    .map((row) => within(row).getAllByRole('cell')[1]?.querySelector('.workout-type')?.textContent)
 }
 
 async function register(type: string, varighet: string) {
@@ -84,5 +84,72 @@ describe('App', () => {
     await register('Løping', '45')
     expect(screen.getByRole('alert')).toBeInTheDocument()
     expect(typesInList()).toEqual(['Lagret'])
+  })
+
+  describe('redigering', () => {
+    const other = { id: '00000000-0000-4000-8000-000000000002', dato: '2026-10-01', type: 'Annen', varighet: 30 }
+
+    beforeEach(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored, other] }))
+    })
+
+    it('Rediger fyller skjemaet med økten og flytter fokus til Dato', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      expect(screen.getByRole('heading', { level: 2, name: 'Rediger økt' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Dato')).toHaveValue('2026-11-01')
+      expect(screen.getByLabelText('Type')).toHaveValue('Lagret')
+      expect(screen.getByLabelText('Varighet (minutter)')).toHaveValue(20)
+      expect(screen.getByLabelText('Dato')).toHaveFocus()
+    })
+
+    it('Lagre endringer oppdaterer listen uten omlasting og flytter fokus til en melding', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      await user.clear(screen.getByLabelText('Type'))
+      await user.type(screen.getByLabelText('Type'), 'Endret')
+      await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+
+      expect(typesInList()).toEqual(['Endret', 'Annen'])
+      expect(screen.getByText('«Endret» er oppdatert.')).toHaveFocus()
+      expect(screen.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Type')).toHaveValue('')
+    })
+
+    it('Rediger på samme økt igjen fyller feltene på nytt og flytter fokus til Dato', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      await user.clear(screen.getByLabelText('Type'))
+      await user.type(screen.getByLabelText('Type'), 'Halvferdig')
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      expect(screen.getByLabelText('Type')).toHaveValue('Lagret')
+      expect(screen.getByLabelText('Dato')).toHaveFocus()
+    })
+
+    it('Avbryt redigering endrer ingenting og gir fokus tilbake til Rediger-knappen', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: 'Rediger «Annen» 1. okt. 2026' }))
+      await user.clear(screen.getByLabelText('Type'))
+      await user.type(screen.getByLabelText('Type'), 'Ikke lagret')
+      await user.click(screen.getByRole('button', { name: 'Avbryt redigering' }))
+
+      expect(typesInList()).toEqual(['Lagret', 'Annen'])
+      expect(screen.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Rediger «Annen» 1. okt. 2026' })).toHaveFocus()
+    })
+
+    it('sletting oppdaterer listen og avslutter redigering av samme økt', async () => {
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      await user.click(screen.getByRole('button', { name: 'Slett «Lagret» 1. nov. 2026' }))
+      await user.click(screen.getByRole('button', { name: 'Slett økten' }))
+      expect(typesInList()).toEqual(['Annen'])
+      expect(screen.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeInTheDocument()
+    })
   })
 })

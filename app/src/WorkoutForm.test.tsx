@@ -495,3 +495,131 @@ describe('WorkoutForm', () => {
     expect(describedAtFocus).toBe('Oppgi type trening.')
   })
 })
+
+describe('WorkoutForm – redigering', () => {
+  const editing = { id: storedId(7), dato: '2026-11-01', type: '<b>Løping</b>', varighet: 40 }
+
+  function renderEdit() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [editing] }))
+    const onSaved = vi.fn()
+    const onCancelEdit = vi.fn()
+    const user = userEvent.setup()
+    render(<WorkoutForm editing={editing} onSaved={onSaved} onCancelEdit={onCancelEdit} />)
+    return { onSaved, onCancelEdit, user }
+  }
+
+  it('viser gjeldende verdier, også HTML-innhold som tekst, og egen overskrift og knapper', () => {
+    renderEdit()
+    expect(screen.getByRole('form', { name: 'Rediger økt' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Dato')).toHaveValue('2026-11-01')
+    expect(screen.getByLabelText('Type')).toHaveValue('<b>Løping</b>')
+    expect(screen.getByLabelText('Varighet (minutter)')).toHaveValue(40)
+    expect(screen.getByRole('button', { name: 'Lagre endringer' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lagre økt' })).not.toBeInTheDocument()
+  })
+
+  it('lagrer endringen med samme id og melder fra til onSaved (listen viser meldingen)', async () => {
+    const { onSaved, user } = renderEdit()
+    await user.clear(screen.getByLabelText('Varighet (minutter)'))
+    await user.type(screen.getByLabelText('Varighet (minutter)'), '55')
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    const updated = { ...editing, varighet: 55 }
+    expect(loadWorkouts().workouts).toEqual([updated])
+    expect(onSaved).toHaveBeenCalledWith([updated])
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  it('bruker samme validering og lagrer ingenting ved feil', async () => {
+    const { onSaved, user } = renderEdit()
+    await user.clear(screen.getByLabelText('Type'))
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    expect(screen.getByLabelText('Type')).toHaveAccessibleDescription('Oppgi type trening.')
+    expect(screen.getByLabelText('Type')).toHaveFocus()
+    expect(loadWorkouts().workouts).toEqual([editing])
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('spør om ødelagte data og lagrer endringen etter bekreftelse', async () => {
+    const { user } = renderEdit()
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [editing, 'tull'] }))
+    await user.clear(screen.getByLabelText('Varighet (minutter)'))
+    await user.type(screen.getByLabelText('Varighet (minutter)'), '50')
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    expect(screen.getByRole('dialog', { name: 'Noen lagrede data er ødelagte' })).toHaveAccessibleDescription(
+      'Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene. 1 gyldig økt beholdes, og endringen lagres.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Fjern ødelagte data og lagre' }))
+    expect(loadWorkouts()).toEqual({ status: 'ok', workouts: [{ ...editing, varighet: 50 }] })
+  })
+
+  it('ved 5 000 gyldige og noen ødelagte økter spør redigering om forkasting i stedet for å vise grensefeil', async () => {
+    const okter = [editing, ...Array.from({ length: MAX_WORKOUTS - 1 }, (_, n) => ({ ...editing, id: storedId(n + 100) }))]
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [...okter, 'tull'] }))
+    const user = userEvent.setup()
+    render(<WorkoutForm editing={editing} />)
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(/5000 gyldige økter beholdes, og endringen lagres/)
+  })
+
+  it('kan lagre med en gang etter at redigering startes, selv om forrige lagring viste statusmelding', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [editing] }))
+    const user = userEvent.setup()
+    const { rerender } = render(<WorkoutForm editing={null} />)
+    await user.type(screen.getByLabelText('Type'), 'Ny')
+    await user.type(screen.getByLabelText('Varighet (minutter)'), '10')
+    await user.click(screen.getByRole('button', { name: 'Lagre økt' }))
+    expect(screen.getByRole('status')).toHaveTextContent('«Ny» er lagret.')
+    const onSaved = vi.fn()
+    rerender(<WorkoutForm editing={editing} onSaved={onSaved} />)
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    expect(onSaved).toHaveBeenCalledOnce()
+  })
+
+  it('viser feilmelding når økten ikke finnes lenger', async () => {
+    const { onSaved, user } = renderEdit()
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [] }))
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Økten finnes ikke lenger (den kan være slettet i en annen fane). Endringen ble ikke lagret.',
+    )
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('Avbryt redigering kaller onCancelEdit uten å lagre', async () => {
+    const { onCancelEdit, onSaved, user } = renderEdit()
+    await user.clear(screen.getByLabelText('Type'))
+    await user.type(screen.getByLabelText('Type'), 'Endret')
+    await user.click(screen.getByRole('button', { name: 'Avbryt redigering' }))
+    expect(onCancelEdit).toHaveBeenCalledOnce()
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(loadWorkouts().workouts).toEqual([editing])
+  })
+
+  it('går tilbake til tomt registreringsskjema når redigeringen avsluttes', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [editing] }))
+    const user = userEvent.setup()
+    const { rerender } = render(<WorkoutForm editing={editing} />)
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    rerender(<WorkoutForm editing={null} />)
+    expect(screen.getByRole('form', { name: 'Registrer økt' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Type')).toHaveValue('')
+    expect(screen.getByLabelText('Dato')).toHaveValue('2026-11-05')
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  it('bytter til en annen økt og tømmer gamle feil', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [editing] }))
+    const user = userEvent.setup()
+    const { rerender } = render(<WorkoutForm editing={editing} />)
+    await user.clear(screen.getByLabelText('Type'))
+    await user.click(screen.getByRole('button', { name: 'Lagre endringer' }))
+    expect(screen.getByLabelText('Type')).toHaveAttribute('aria-invalid', 'true')
+    const next = { ...editing, id: storedId(8), type: 'Neste' }
+    rerender(<WorkoutForm editing={next} />)
+    expect(screen.getByLabelText('Type')).toHaveValue('Neste')
+    expect(screen.getByLabelText('Type')).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByLabelText('Dato')).toHaveFocus()
+  })
+})

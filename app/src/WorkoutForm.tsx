@@ -1,20 +1,38 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { InputHTMLAttributes, SubmitEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { ConfirmDialog } from './ConfirmDialog'
+import { corruptDialogText } from './corruptDialog'
 import { todayLocal, validateWorkoutInput } from './workout'
 import type { FieldErrors, Workout, WorkoutField } from './workout'
-import { MAX_WORKOUTS, addWorkout, loadWorkouts } from './workoutStorage'
+import { MAX_WORKOUTS, addWorkout, loadWorkouts, updateWorkout } from './workoutStorage'
 import type { WriteResult } from './workoutStorage'
 
 type StorageError = Exclude<Extract<WriteResult, { ok: false }>['error'], 'invalid' | 'corrupt'>
 
 const storageErrorMessages: Record<StorageError, string> = {
-  quota: 'Lagringsplassen i nettleseren er full. Økten ble ikke lagret.',
-  unavailable: 'Nettleseren tillater ikke lagring nå (for eksempel i privat modus). Økten ble ikke lagret.',
-  limit: 'Du har nådd grensen på 5 000 økter. Økten ble ikke lagret.',
-  'unsupported-version': 'Dataene er lagret av en nyere versjon av appen. Last inn siden på nytt. Økten ble ikke lagret.',
-  'not-found': 'Økten ble ikke funnet. Økten ble ikke lagret.',
+  quota: 'Lagringsplassen i nettleseren er full.',
+  unavailable: 'Nettleseren tillater ikke lagring nå (for eksempel i privat modus).',
+  limit: 'Du har nådd grensen på 5 000 økter.',
+  'unsupported-version': 'Dataene er lagret av en nyere versjon av appen. Last inn siden på nytt.',
+  'not-found': 'Økten finnes ikke lenger (den kan være slettet i en annen fane).',
+}
+
+function storageErrorText(error: StorageError, editing: boolean): string {
+  return `${storageErrorMessages[error]} ${editing ? 'Endringen' : 'Økten'} ble ikke lagret.`
+}
+
+function valuesFor(editing: Workout | null): Record<WorkoutField, string> {
+  return editing
+    ? { dato: editing.dato, type: editing.type, varighet: String(editing.varighet) }
+    : { dato: todayLocal(), type: '', varighet: '' }
+}
+
+interface WorkoutFormProps {
+  onSaved?: (workouts: Workout[]) => void
+  // Økten som redigeres; null eller utelatt betyr registrering av ny økt.
+  editing?: Workout | null
+  onCancelEdit?: () => void
 }
 
 const fieldOrder: WorkoutField[] = ['dato', 'type', 'varighet']
@@ -26,38 +44,38 @@ interface Message {
   key: number
 }
 
-function corruptDialogText(kept: number) {
-  if (kept === 0) {
-    return {
-      title: 'De lagrede dataene kan ikke leses',
-      confirmLabel: 'Fjern alle lagrede data og lagre',
-      text: 'Ingen av de lagrede øktene kan leses. Hvis du fortsetter, fjernes alle lagrede data, og bare den nye økten lagres.',
-    }
-  }
-  const keptText = kept === 1 ? '1 gyldig økt' : `${String(kept)} gyldige økter`
-  return {
-    title: 'Noen lagrede data er ødelagte',
-    confirmLabel: 'Fjern ødelagte data og lagre',
-    text: `Noen av de lagrede dataene kan ikke leses. Hvis du fortsetter, fjernes de ødelagte dataene. ${keptText} beholdes, og den nye økten lagres.`,
-  }
-}
-
-export function WorkoutForm({ onSaved }: { onSaved?: (workouts: Workout[]) => void }) {
+export function WorkoutForm({ onSaved, editing = null, onCancelEdit }: WorkoutFormProps) {
   const today = todayLocal()
-  const [values, setValues] = useState<Record<WorkoutField, string>>({ dato: today, type: '', varighet: '' })
+  const [values, setValues] = useState(() => valuesFor(editing))
   const [errors, setErrors] = useState<FieldErrors>({})
   const [status, setStatus] = useState('')
   const [storageError, setStorageError] = useState<Message | null>(null)
+  // Bytte av økt (eller tilbake til registrering) fyller feltene på nytt. Ny redigering tømmer statusmeldingen,
+  // så den ikke sperrer innsending (se handleSubmit).
+  const [shownEditing, setShownEditing] = useState(editing)
+  if (editing !== shownEditing) {
+    setShownEditing(editing)
+    setValues(valuesFor(editing))
+    setErrors({})
+    setStorageError(null)
+    if (editing) setStatus('')
+  }
   // Antall gyldige økter som beholdes hvis brukeren bekrefter; null når dialogen er lukket.
   const [keptCount, setKeptCount] = useState<number | null>(null)
   const messageKey = useRef(0)
   const headingId = useId()
   const idPrefix = useId()
+  const datoRef = useRef<HTMLInputElement>(null)
   const inputRefs = {
-    dato: useRef<HTMLInputElement>(null),
+    dato: datoRef,
     type: useRef<HTMLInputElement>(null),
     varighet: useRef<HTMLInputElement>(null),
   }
+
+  // Rediger: fokus til første felt.
+  useEffect(() => {
+    if (editing) datoRef.current?.focus()
+  }, [editing])
 
   function showFieldErrors(fieldErrors: FieldErrors) {
     // Feilene må være i DOM-en før fokus flyttes, slik at skjermlesere leser dem.
@@ -71,7 +89,7 @@ export function WorkoutForm({ onSaved }: { onSaved?: (workouts: Workout[]) => vo
 
   function showStorageError(error: StorageError) {
     messageKey.current += 1
-    setStorageError({ text: storageErrorMessages[error], key: messageKey.current })
+    setStorageError({ text: storageErrorText(error, editing !== null), key: messageKey.current })
   }
 
   // Kjøres bare når statusmeldingen er tom (se handleSubmit), så den trenger ikke tømmes ved feil.
@@ -84,12 +102,16 @@ export function WorkoutForm({ onSaved }: { onSaved?: (workouts: Workout[]) => vo
       showFieldErrors(validation.errors)
       return
     }
-    const result = addWorkout(input, { discardInvalid })
+    const result = editing
+      ? updateWorkout(editing.id, input, { discardInvalid })
+      : addWorkout(input, { discardInvalid })
     if (result.ok) {
+      // Ved redigering fyller App skjemaet på nytt når redigeringen avsluttes.
       setValues((current) => ({ ...current, type: '', varighet: '' }))
       setErrors({})
       setStorageError(null)
-      setStatus(`«${validation.value.type}» er lagret.`)
+      // Ved redigering melder listen fra (med fokus), så meldingen ikke kuttes av fokusflyttingen.
+      if (!editing) setStatus(`«${validation.value.type}» er lagret.`)
       onSaved?.(result.workouts)
       return
     }
@@ -101,7 +123,7 @@ export function WorkoutForm({ onSaved }: { onSaved?: (workouts: Workout[]) => vo
     if (result.error === 'corrupt') {
       const kept = loadWorkouts().workouts.length
       // Ved grensen kan den nye økten ikke lagres selv etter forkasting, så dialogen ville lovet for mye.
-      if (kept >= MAX_WORKOUTS) {
+      if (!editing && kept >= MAX_WORKOUTS) {
         showStorageError('limit')
         return
       }
@@ -148,11 +170,11 @@ export function WorkoutForm({ onSaved }: { onSaved?: (workouts: Workout[]) => vo
     )
   }
 
-  const dialog = corruptDialogText(keptCount ?? 0)
+  const dialog = corruptDialogText(keptCount ?? 0, editing ? 'update' : 'add')
 
   return (
     <section>
-      <h2 id={headingId}>Registrer økt</h2>
+      <h2 id={headingId}>{editing ? 'Rediger økt' : 'Registrer økt'}</h2>
       <form aria-labelledby={headingId} noValidate onSubmit={handleSubmit}>
         {field('dato', 'Dato', { type: 'date', max: today })}
         {field('type', 'Type', { type: 'text', autoComplete: 'off' })}
@@ -162,7 +184,14 @@ export function WorkoutForm({ onSaved }: { onSaved?: (workouts: Workout[]) => vo
             {storageError.text}
           </p>
         )}
-        <button type="submit">Lagre økt</button>
+        <div className="form-actions">
+          <button type="submit">{editing ? 'Lagre endringer' : 'Lagre økt'}</button>
+          {editing && (
+            <button type="button" className="secondary" onClick={onCancelEdit}>
+              Avbryt redigering
+            </button>
+          )}
+        </div>
         <p role="status" className="status">
           {status}
         </p>
