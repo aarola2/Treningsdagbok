@@ -107,35 +107,63 @@ test('viser HTML og skript i type som ren tekst uten å kjøre det', async ({ pa
   expect(errors).toEqual([])
 })
 
-// Verste tilfelle: 50 kodepunkter der 46 er astrale emoji (to UTF-16-enheter hver, mest rådata og dyrest
-// tekstoppsett), og i smal visning der typen brytes over mange linjer.
+// Verste tilfelle er tekst som er dyr å forme og bryte: 4 siffer + 46 kodepunkter (50 er maks) av hver variant,
+// i bred og smal visning. Devanagari med konsonantklynger uten mellomrom er tregest målt i smal visning.
+const worstCaseTypes = {
+  emoji: '\u{1F3C3}'.repeat(46),
+  'ZWJ-emoji': '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}'.repeat(9) + '\u{1F468}',
+  devanagari: '\u0915\u094D\u0937'.repeat(15) + '\u0915',
+}
+
 for (const viewport of [
   { width: 1280, height: 720 },
   { width: 320, height: 800 },
 ]) {
-  test.describe(`${String(viewport.width)} px bredde`, () => {
-    test.use({ viewport })
+  for (const [variant, text] of Object.entries(worstCaseTypes)) {
+    test.describe(`${String(viewport.width)} px bredde, ${variant}`, () => {
+      test.use({ viewport })
 
-    test('viser 5 000 økter med maksimal feltlengde innen 1 sekund etter omlasting', async ({ page }, testInfo) => {
-      const okter: StoredWorkout[] = Array.from({ length: 5000 }, (_, n) => ({
-        id: id(n),
-        dato: `20${String(10 + (n % 16))}-${String((n % 12) + 1).padStart(2, '0')}-${String((n % 28) + 1).padStart(2, '0')}`,
-        type: `${String(n).padStart(4, '0')}${'\u{1F3C3}'.repeat(46)}`,
-        varighet: 1440,
-      }))
-      await store(page, okter)
-      await expect(list(page).getByRole('row')).toHaveCount(5001)
+      // «Listen vises» = første side er synlig (godkjent av eier i #7 ved paginering).
+      test('viser første side av 5 000 økter med maksimal feltlengde innen 1 sekund etter omlasting', async ({ page }, testInfo) => {
+        const okter: StoredWorkout[] = Array.from({ length: 5000 }, (_, n) => ({
+          id: id(n),
+          dato: `20${String(10 + (n % 16))}-${String((n % 12) + 1).padStart(2, '0')}-${String((n % 28) + 1).padStart(2, '0')}`,
+          type: `${String(n).padStart(4, '0')}${text}`,
+          varighet: 1440,
+        }))
+        expect(Array.from(okter[0]?.type ?? '')).toHaveLength(50)
+        await store(page, okter)
+        await expect(list(page).getByRole('row')).toHaveCount(101)
 
-      const start = Date.now()
-      await page.reload()
-      await expect(list(page).getByRole('row').nth(5000)).toBeVisible()
-      const elapsed = Date.now() - start
+        const start = Date.now()
+        await page.reload()
+        await expect(list(page).getByRole('row').nth(100)).toBeVisible()
+        const elapsed = Date.now() - start
 
-      testInfo.annotations.push({ type: 'ytelse', description: `5 000 økter synlige etter ${String(elapsed)} ms` })
-      expect(elapsed).toBeLessThan(1000)
+        testInfo.annotations.push({ type: 'ytelse', description: `Første side av 5 000 økter synlig etter ${String(elapsed)} ms` })
+        expect(elapsed).toBeLessThan(1000)
+        await expect(page.getByRole('status').filter({ hasText: 'Viser' })).toHaveText('Viser 100 av 5 000 økter.')
+      })
     })
-  })
+  }
 }
+
+test('«Vis flere økter» viser neste side og kan brukes med tastatur', async ({ page }, testInfo) => {
+  await store(
+    page,
+    Array.from({ length: 150 }, (_, n) => ({ id: id(n), dato: '2026-01-01', type: `Økt ${String(n)}`, varighet: 30 })),
+  )
+  const rows = list(page).getByRole('row')
+  await expect(rows).toHaveCount(101)
+  const more = page.getByRole('button', { name: 'Vis flere økter' })
+  await more.focus()
+  await page.keyboard.press('Enter')
+  await expect(rows).toHaveCount(151)
+  await expect(page.getByRole('status').filter({ hasText: 'Viser' })).toHaveText('Viser 150 av 150 økter.')
+  await expect(more).toHaveCount(0)
+  await expectNoAxeViolations(page)
+  await attachScreenshot(page, testInfo, 'vis-flere')
+})
 
 for (const timezoneId of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
   test.describe(`tidssone ${timezoneId}`, () => {

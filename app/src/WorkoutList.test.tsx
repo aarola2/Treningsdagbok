@@ -1,7 +1,8 @@
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { Workout } from './workout'
-import { WorkoutList } from './WorkoutList'
+import { PAGE_SIZE, WorkoutList } from './WorkoutList'
 import type { LoadResult } from './workoutStorage'
 
 function workout(n: number, dato: string, type = `Økt ${String(n)}`, varighet = 30): Workout {
@@ -61,12 +62,15 @@ describe('WorkoutList', () => {
     ])
   })
 
-  it('sorterer en stor liste i tilfeldig rekkefølge riktig (også når sorteringen fletter delsekvenser)', () => {
+  it('sorterer en stor liste i tilfeldig rekkefølge riktig (også når sorteringen fletter delsekvenser)', async () => {
     // Deterministisk «tilfeldig» rekkefølge av 300 datoer med mange like datoer.
     const workouts = Array.from({ length: 300 }, (_, n) =>
       workout(n, `2026-${String(((n * 7) % 12) + 1).padStart(2, '0')}-${String(((n * 13) % 28) + 1).padStart(2, '0')}`),
     )
     renderList({ status: 'ok', workouts })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
+    await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
     const shown = dataRows().map((row) => {
       const [dato, type] = within(row)
         .getAllByRole('cell')
@@ -77,6 +81,45 @@ describe('WorkoutList', () => {
       .map((w, n) => ({ dato: w.dato, n }))
       .sort((a, b) => (a.dato === b.dato ? b.n - a.n : a.dato < b.dato ? 1 : -1))
     expect(shown).toEqual(expected)
+  })
+
+  describe('paginering', () => {
+    const many = (count: number) => Array.from({ length: count }, (_, n) => workout(n, '2026-01-01'))
+
+    it('viser alle uten knapp eller teller når det er høyst én side', () => {
+      renderList({ status: 'ok', workouts: many(PAGE_SIZE) })
+      expect(dataRows()).toHaveLength(PAGE_SIZE)
+      expect(screen.queryByRole('button', { name: 'Vis flere økter' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('viser første side, en teller og flere sider ved klikk til alle vises', async () => {
+      renderList({ status: 'ok', workouts: many(2 * PAGE_SIZE + 50) })
+      const user = userEvent.setup()
+      expect(dataRows()).toHaveLength(PAGE_SIZE)
+      expect(screen.getByRole('status')).toHaveTextContent('Viser 100 av 250 økter.')
+
+      await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
+      expect(dataRows()).toHaveLength(2 * PAGE_SIZE)
+      expect(screen.getByRole('status')).toHaveTextContent('Viser 200 av 250 økter.')
+
+      await user.click(screen.getByRole('button', { name: 'Vis flere økter' }))
+      expect(dataRows()).toHaveLength(250)
+      expect(screen.getByRole('status')).toHaveTextContent('Viser 250 av 250 økter.')
+      expect(screen.queryByRole('button', { name: 'Vis flere økter' })).not.toBeInTheDocument()
+    })
+
+    it('viser de nyeste øktene på første side', () => {
+      const workouts = [...many(PAGE_SIZE), workout(999, '2026-12-24', 'Nyest')]
+      renderList({ status: 'ok', workouts })
+      expect(within(dataRows()[0] as HTMLElement).getAllByRole('cell')[1]).toHaveTextContent('Nyest')
+    })
+
+    it('formaterer store antall med mellomrom', () => {
+      renderList({ status: 'ok', workouts: many(5000) })
+      // Hardt mellomrom som tusenskille (toHaveTextContent normaliserer mellomrom, så sjekk teksten direkte).
+      expect(screen.getByRole('status').textContent).toBe('Viser 100 av 5\u00A0000 økter.')
+    })
   })
 
   it('endrer ikke rekkefølgen i listen den får', () => {

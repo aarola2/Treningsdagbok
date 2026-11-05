@@ -173,3 +173,16 @@ main > section + section {
   overflow-wrap: anywhere;
   hyphens: auto;
 }
+
+.list-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+.list-more p {
+  margin: 0;
+}

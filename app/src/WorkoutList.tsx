@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react'
+import { useId, useMemo, useState } from 'react'
 import type { Workout } from './workout'
 import type { LoadResult } from './workoutStorage'
 
@@ -17,7 +17,12 @@ function statusMessage(list: LoadResult): string | null {
   return statusMessages[list.status]
 }
 
-// Opprettes én gang; Intl-formatering er dyrt å lage per rad når det er 5 000 rader.
+// Én side holder visningen rask også med 5 000 økter (og på trege maskiner), og gir skjermlesere en håndterlig tabell.
+export const PAGE_SIZE = 100
+
+const countFormat = new Intl.NumberFormat('nb-NO')
+
+// Opprettes én gang; Intl-formatering er dyrt å lage per rad.
 const dateFormat = new Intl.DateTimeFormat('nb-NO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 
 function formatDate(dato: string): string {
@@ -36,6 +41,8 @@ function sortNewestFirst(workouts: Workout[]): Workout[] {
 export function WorkoutList({ list }: { list: LoadResult }) {
   const headingId = useId()
   const sorted = useMemo(() => sortNewestFirst(list.workouts), [list.workouts])
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const shown = sorted.slice(0, visibleCount)
   const message = statusMessage(list)
 
   return (
@@ -55,7 +62,7 @@ export function WorkoutList({ list }: { list: LoadResult }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((workout) => (
+            {shown.map((workout) => (
               <tr key={workout.id}>
                 <td>
                   <time dateTime={workout.dato}>{formatDate(workout.dato)}</time>
@@ -67,6 +74,24 @@ export function WorkoutList({ list }: { list: LoadResult }) {
             ))}
           </tbody>
         </table>
+      )}
+      {sorted.length > PAGE_SIZE && (
+        <div className="list-more">
+          <p role="status">
+            Viser {countFormat.format(shown.length)} av {countFormat.format(sorted.length)} økter.
+          </p>
+          {shown.length < sorted.length && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setVisibleCount((count) => count + PAGE_SIZE)
+              }}
+            >
+              Vis flere økter
+            </button>
+          )}
+        </div>
       )}
     </section>
   )
