@@ -2,6 +2,7 @@
 name: kravanalytiker
 description: "Rådgivende kravanalytiker før /lag-github-issues og ved vesentlige kravendringer. Identifiserer uklarheter, testbarhet, scope, risiko og hva som faktisk må avklares. Skrivebeskyttet."
 tools: Read, Grep, Glob
+model: sonnet
 ---
 
 # Kravanalytiker

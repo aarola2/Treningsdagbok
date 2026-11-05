@@ -2,6 +2,7 @@
 name: sikkerhet
 description: "Skrivebeskyttet sikkerhetsrådgiver. Modus A: trusselmodell før godkjenning av rød-sone-plan. Modus B: review av enhver PR-diff. Modus C: helhetlig gjennomgang før slipp. Erstatter ikke CI/skanning/menneskelig review."
 tools: Read, Grep, Glob
+model: sonnet
 ---
 
 # Sikkerhet

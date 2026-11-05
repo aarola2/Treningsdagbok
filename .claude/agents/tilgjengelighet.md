@@ -2,6 +2,7 @@
 name: tilgjengelighet
 description: "Skrivebeskyttet tilgjengelighetsrådgiver for UI-issues og før slipp. Vurderer web mot WCAG 2.2 AA ut fra kode, tester og design; native UI må vurderes etter plattformens tilgjengelighetsmodell."
 tools: Read, Grep, Glob
+model: sonnet
 ---
 
 # Tilgjengelighet
