@@ -38,8 +38,15 @@ describe('PrivacySection', () => {
     expect(region).toHaveTextContent('logger forespørsler')
   })
 
+  it('sier at dataene ikke er kryptert og kan leses av andre med samme enhet og nettleserprofil', () => {
+    expect(section()).toHaveTextContent(
+      'Dataene er ikke kryptert, så andre som bruker samme enhet og nettleserprofil, kan få tilgang til dem.',
+    )
+  })
+
   it('lover ikke mer enn appen kan holde', () => {
     const region = section()
-    expect(region).not.toHaveTextContent(/kryptert|anonym|for alltid|sikkert lagret/i)
+    // «ikke kryptert» er en advarsel; et løfte om kryptering, anonymitet eller varig lagring er ikke tillatt.
+    expect(region).not.toHaveTextContent(/(er|lagres|blir) kryptert|anonym|for alltid|sikkert lagret/i)
   })
 })

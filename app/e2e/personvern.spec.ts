@@ -28,6 +28,7 @@ test('forsiden viser teksten om lagring og personvern, som skjermlesere finner s
   await expect(region(page).getByRole('heading', { level: 2, name: 'Lagring og personvern' })).toBeVisible()
   await expect(region(page)).toContainText('lagres bare i denne nettleseren på denne enheten')
   await expect(region(page)).toContainText('Appen sender dem ikke noe sted.')
+  await expect(region(page)).toContainText('Dataene er ikke kryptert, så andre som bruker samme enhet og nettleserprofil')
   await expect(region(page)).toContainText('i privat modus')
   await expect(region(page)).toContainText('tømmer nettleserdata')
   await expect(region(page)).toContainText('rydder bort data etter en periode uten bruk')
