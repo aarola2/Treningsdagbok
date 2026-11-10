@@ -37,7 +37,7 @@ Hele appen er én side. `App` eier listen over økter og sender den nedover; kom
 | `WorkoutForm.tsx` | Registrerer ny økt eller redigerer valgt økt. Feltfeil ved feltene, fokus til første feil, statusmelding, dialog før ødelagte data forkastes |
 | `WorkoutList.tsx` | Tabell sortert med nyeste dato først (ved lik dato: sist registrert først), 100 rader per side («Vis flere økter»). Knappene Rediger og Slett per rad, sletting med bekreftelse. Tomtilstand og feilmeldinger for ødelagte data, ukjent versjon og utilgjengelig lagring |
 | `ExportSection.tsx` | Laster ned alle gyldige økter som JSON. Melding om antall og filnavn |
-| `DeleteAllSection.tsx` | «Slett alle data» med bekreftelse. Skjules når appen er rammet inn (se S4) |
+| `DeleteAllSection.tsx` | «Slett alle data» med bekreftelse. Når appen er rammet inn, skjules knappen og erstattes av en forklarende tekst (se S4) |
 | `PrivacySection.tsx` | Statisk tekst om lagring og personvern |
 | `ConfirmDialog.tsx` | Felles modal `<dialog>` (`showModal`), fokus starter på «Avbryt», Escape avbryter |
 | `corruptDialog.ts` | Tekst for dialogen om ødelagte data (registrering, redigering, sletting) |
@@ -70,7 +70,7 @@ Lagrede data er ubetrodde. Resultatet har en status som UI-et viser på norsk:
 | Status | Når | Hva brukeren ser |
 |---|---|---|
 | `ok` | Ingen data, eller gyldige data | Listen, eller tomtilstand |
-| `corrupt` | Ugyldig JSON, verdi over 2 000 000 tegn (tolkes ikke), feil rotstruktur eller ukjente rotnøkler, `versjon` som ikke er et tall større enn 1, ugyldige eller dupliserte økter, eller flere enn 5 000 gyldige økter | De gyldige øktene og en melding om at noen data ikke kan leses |
+| `corrupt` | Ugyldig JSON, verdi over 2 000 000 tegn (tolkes ikke), feil rotstruktur eller ukjente rotnøkler, `versjon` mangler eller er noe annet enn tallet 1 (men ikke et tall større enn 1), ugyldige eller dupliserte økter, eller flere enn 5 000 gyldige økter | De gyldige øktene og en melding om at noen data ikke kan leses |
 | `unsupported-version` | `versjon` er et tall større enn 1 (lagret av en nyere app) | Melding om nyere versjon; ingen økter vises, og skriving sperres |
 | `unavailable` | `localStorage` kan ikke nås eller lesing kaster (for eksempel privat modus) | Melding om at lagring ikke er tillatt nå |
 
@@ -103,7 +103,7 @@ Hver økt valideres med `validateStoredWorkout`: nøyaktig de fire feltene, `id`
 |---|---|---|
 | Listen vises på under 1 s med 5 000 økter | 5 000 økter med maksimal feltlengde, målt etter omlasting | `e2e/liste.spec.ts` («viser første side av 5 000 økter … innen 1 sekund») |
 | Eksport ferdig på under 2 s | 5 000 økter, 50 tegn emoji eller devanagari, varighet 1440 | `e2e/eksport.spec.ts` («5 000 økter … er ferdig nedlastet innen 2 sekunder») |
-| Slett alle (samme mål som eksport) | 5 000 økter med maksimal datamengde; målt til 39 ms lokalt | `e2e/slett-alle.spec.ts` («5 000 økter er slettet og listen tom innen 2 sekunder») |
+| Slett alle (samme mål som eksport) | 5 000 økter med maksimal datamengde; én lokal måling ga 39 ms (tallet skrives som annotasjon i Playwright-rapporten ved hver kjøring) | `e2e/slett-alle.spec.ts` («5 000 økter er slettet og listen tom innen 2 sekunder») |
 | Plass til grensen | 5 000 økter med maksimal feltlengde får plass i `localStorage` | `src/workoutStorage.test.ts` («får plass til 5 000 økter med maksimal feltlengde») |
 
 ## Kjøring
@@ -148,7 +148,7 @@ Testdata er syntetiske. Repoet er offentlig, og rapportene er CI-artefakter, så
 
 ### Utrulling
 
-1. Merge til `main` → CI kjører. Når CI er grønn, bygger `deploy.yml` **én** artefakt (`artefakt-<commit>`, `.tgz` med SHA-256), som beholdes i 90 dager.
+1. Merge til `main` → CI kjører. `deploy.yml` startes av `workflow_run` når CI er ferdig, og fortsetter bare hvis CI er grønn på en push til `main`. Da bygges **én** artefakt (`artefakt-<commit>`, `.tgz` med SHA-256), som beholdes i 90 dager.
 2. **Staging** er en røyktest i runneren, fordi Pages bare har ett nettsted per repo: artefakten pakkes ut og serveres lokalt, og testen krever at `index.html` svarer, har `<title>Treningsdagbok</title>` og har CSP-meta. Grønn staging lagrer et bevis (`staging-ok-<commit>`) med samme digest.
 3. **Produksjon** starter bare når en tag `v*` pushes (via `/slipp-til-produksjon`), taggen ligger på `main`, eier har satt `PRODUKSJON_GODKJENNING_VERIFISERT=true`, og en reviewer godkjenner miljøet `production`. Jobben henter artefakten og staging-beviset fra **samme** kjøring for den commiten, krever at digestene stemmer, og publiserer den uendrede artefakten til Pages. Ingenting bygges på nytt.
 
@@ -165,7 +165,9 @@ Eier kontrollerer GitHub-innstillingene med `bash scripts/sjekk-github-oppsett.s
 
 ### Tilbakerulling
 
-- **Innen 90 dager** (mens artefakten for forrige slippede commit finnes): lag en **ny** tag `v*` på den forrige slippede commiten, for eksempel `v1.0.2` på samme commit som `v1.0.0`. Produksjonsjobben finner artefakten og staging-beviset for den commiten og publiserer dem på nytt etter godkjenning. Taggen må ligge på `main`, noe en tidligere slippet commit gjør.
+- **Innen 90 dager** (mens artefakten for forrige slippede commit finnes): lag en **ny** tag `v*` på den forrige slippede commiten, for eksempel `v1.0.2` på samme commit som `v1.0.0`. Produksjonsjobben finner artefakten og staging-beviset for den commiten og publiserer dem på nytt etter godkjenning. Taggen må ligge på `main`, noe en tidligere slippet commit gjør. De 90 dagene regnes fra da commiten ble bygget etter merge, ikke fra slippet.
+- Tilbakerulling går gjennom **samme sperre** som et vanlig slipp: taggen settes av eier via `/slipp-til-produksjon`, `PRODUKSJON_GODKJENNING_VERIFISERT` må være satt, og en reviewer må godkjenne miljøet `production`. Den kan ikke hastes forbi sperren.
+- En tilbakerulling med tag endrer ikke `main`. Lag derfor også en revert-PR (eller en rettelse), ellers kommer feilen tilbake ved neste slipp fra `main`.
 - **Etter 90 dager** (artefakten er slettet): lag en revert-commit til `main` via PR. Det gir ny CI, ny artefakt og ny staging, og deretter en ny tag `v*` på den commiten.
 - Brukerdata påvirkes ikke av tilbakerulling, fordi de ligger i nettleseren. En eldre app som møter data med høyere `versjon`, viser «nyere versjon» og skriver ikke over dem.
 
@@ -182,7 +184,7 @@ Bygget og testet:
 - Synlig fokus (3 px, kontrast ≥ 3:1). Små knapper i listen er minst 24 × 24 px.
 - E2E: axe (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`) i alle hovedflyter og med åpne dialoger; tastaturflyt for registrering, redigering, sletting, eksport og slett alle; 320 px uten horisontal rulling, også med WCAG 1.4.12-tekstavstand.
 
-Gjenstår før slipp (manuelt, #13): skjermleser (VoiceOver og NVDA), zoom 200 % og 400 %, kontrast i ekte nettleser, og andre nettlesere enn Chromium. Spesielt: meldinger som leses opp fordi de får fokus, har ingen rolle. Tilgjengelighetsgjennomgangen av #10 vurderte dette som middels og «mulig» (WCAG 4.1.3). Testes med skjermleser; må det rettes, gjelder det både `WorkoutList` og `DeleteAllSection`.
+Gjenstår før slipp (manuelt, #13): skjermleser (VoiceOver og NVDA), zoom 200 % og 400 %, kontrast i ekte nettleser, og andre nettlesere enn Chromium. Spesielt: **suksessmeldinger** som leses opp fordi de får fokus («… er slettet.», «… er oppdatert.», «Alle data er slettet.»), har ingen rolle. Feilmeldingene har `role="alert"`. Tilgjengelighetsgjennomgangen av #10 vurderte dette som middels og «mulig» (WCAG 4.1.3). Testes med skjermleser; må det rettes, gjelder det både `WorkoutList` og `DeleteAllSection`.
 
 Når navigasjon kommer: `<header>`/`<nav>`, hopp-lenke og `document.title` per visning.
 
@@ -209,7 +211,7 @@ Når navigasjon kommer: `<header>`/`<nav>`, hopp-lenke og `document.title` per v
 | Eksport av egne data | `ExportSection` + `buildExport`, JSON med skjemaversjon | `src/exportWorkouts.test.ts`, `src/ExportSection.test.tsx`, `e2e/eksport.spec.ts` (innholdet i nedlastet fil, ingen nettverkskall). Import er utenfor scope |
 | Data fra `localStorage` er ubetrodde: skjemaversjon og validering; ødelagt JSON krasjer ikke og gir ikke XSS | Statusene i «Lesing», `validateStoredWorkout`, React-tekst (ingen `dangerouslySetInnerHTML`), streng CSP | `src/workoutStorage.test.ts` («loadWorkouts»: ukjent rotnøkkel, `__proto__`, forurenset `Object.prototype`, for stor verdi, duplikater, over 5 000), `src/workout.test.ts` («validateStoredWorkout»), `src/WorkoutList.test.tsx` og `e2e/liste.spec.ts` («viser HTML og skript i type som ren tekst»), `e2e/smoke.spec.ts` («CSP blokkerer inline-skript») |
 | `QuotaExceededError` og utilgjengelig lagring | Egne feilkoder og norske meldinger; input og data beholdes | `src/workoutStorage.test.ts` («gir quota …», «gir unavailable …»), `src/WorkoutForm.test.tsx` («lagringsfeil»), `src/WorkoutList.test.tsx` («viser feilmelding ved full lagring»), `src/DeleteAllSection.test.tsx` (utilgjengelig og delvis sletting) |
-| Ingen logging av treningsdata til konsollen | Ingen `console`-kall i appkoden | `src/workoutStorage.test.ts` (spioner på `console.log/info/warn/error/debug` i alle tester), e2e uten konsollfeil (`smoke`, `registrering`, `liste`, `eksport`, `slett-alle`) |
+| Ingen logging av treningsdata til konsollen | Ingen `console`-kall i appkoden | `src/workoutStorage.test.ts` (spioner på `console.log/info/warn/error/debug` i alle testene i lagringsmodulen; komponenttestene har ikke slike spioner), e2e uten konsollfeil (`smoke`, `registrering`, `liste`, `eksport`, `slett-alle`) |
 | Tekst om hvor data lagres og risikoen for tap | `PrivacySection` | `src/PrivacySection.test.tsx`, `e2e/personvern.spec.ts` |
 | Ingen forespørsler utenfor egen origin | CSP og ingen eksterne ressurser | `e2e/eksport.spec.ts` og `e2e/slett-alle.spec.ts` (overvåker alle forespørsler); full kontroll i alle flyter gjøres i #13 |
 
