@@ -153,6 +153,94 @@ describe('App', () => {
     })
   })
 
+  describe('slett alle data', () => {
+    async function deleteAll(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole('button', { name: 'Slett alle data' }))
+      const dialog = screen.getByRole('dialog', { name: 'Slette alle data?' })
+      await user.click(within(dialog).getByRole('button', { name: 'Slett alle data' }))
+    }
+
+    it('tømmer listen, viser tomtilstand og flytter fokus til meldingen', async () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
+      const user = userEvent.setup()
+      render(<App />)
+      await deleteAll(user)
+
+      expect(screen.queryByRole('table', { name: 'Mine økter' })).not.toBeInTheDocument()
+      expect(screen.getByText(/Du har ingen lagrede økter ennå/)).toBeInTheDocument()
+      expect(screen.getByText('Det finnes ingen økter å eksportere ennå.')).toBeInTheDocument()
+      expect(screen.getByText('Alle data er slettet.')).toHaveFocus()
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+    })
+
+    it('avslutter en pågående redigering og tømmer skjemaet', async () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: 'Rediger «Lagret» 1. nov. 2026' }))
+      expect(screen.getByRole('heading', { level: 2, name: 'Rediger økt' })).toBeInTheDocument()
+      await deleteAll(user)
+
+      expect(screen.getByRole('heading', { level: 2, name: 'Registrer økt' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Type')).toHaveValue('')
+    })
+
+    it.each([
+      ['ødelagte data', '{ikke json', 'De lagrede dataene kan ikke leses, så ingen økter kan vises.'],
+      [
+        'ukjent versjon',
+        JSON.stringify({ versjon: 99, okter: [] }),
+        'Dataene er lagret av en nyere versjon av appen og kan ikke vises. Last inn siden på nytt.',
+      ],
+    ])('tilbyr sletting og fjerner %s', async (_, raw, message) => {
+      localStorage.setItem(STORAGE_KEY, raw)
+      const user = userEvent.setup()
+      render(<App />)
+      expect(screen.getByText(message)).toBeInTheDocument()
+      await deleteAll(user)
+
+      expect(screen.queryByText(message)).not.toBeInTheDocument()
+      expect(screen.getByText(/Du har ingen lagrede økter ennå/)).toBeInTheDocument()
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+    })
+
+    it('viser det som faktisk ligger igjen når slettingen feiler', async () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
+      const user = userEvent.setup()
+      render(<App />)
+      vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+        throw new DOMException('Feil', 'UnknownError')
+      })
+      await deleteAll(user)
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Nettleseren tillot ikke sletting nå.')
+      expect(typesInList()).toEqual(['Lagret'])
+      expect(screen.queryByText('Alle data er slettet.')).not.toBeInTheDocument()
+    })
+
+    it('leser listen på nytt etter feil, så økter slettet før feilen forsvinner fra listen', async () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
+      const user = userEvent.setup()
+      render(<App />)
+      // Første nøkkel fjernes, så kaster nettleseren på neste.
+      localStorage.setItem('Treningsdagbok:v1:zz', 'x')
+      const original = Storage.prototype.removeItem.bind(localStorage)
+      let calls = 0
+      vi.spyOn(Storage.prototype, 'removeItem').mockImplementation((key: string) => {
+        calls += 1
+        if (calls === 2) throw new DOMException('Feil', 'UnknownError')
+        original(key)
+      })
+      await deleteAll(user)
+
+      // jsdom gir nøklene i innsettingsrekkefølge: øktene ble fjernet, den andre nøkkelen står igjen.
+      expect(Object.keys(localStorage)).toEqual(['Treningsdagbok:v1:zz'])
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.queryByRole('table', { name: 'Mine økter' })).not.toBeInTheDocument()
+      expect(screen.getByText(/Du har ingen lagrede økter ennå/)).toBeInTheDocument()
+    })
+  })
+
   it('eksporterer øktene som vises, også en nylig lagret økt', async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
     const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')

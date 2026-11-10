@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { DeleteAllSection } from './DeleteAllSection'
 import { ExportSection } from './ExportSection'
 import { WorkoutForm } from './WorkoutForm'
 import { WorkoutList } from './WorkoutList'
@@ -52,6 +53,17 @@ export function App() {
         }}
       />
       <ExportSection workouts={list.workouts} />
+      <DeleteAllSection
+        empty={list.status === 'ok' && list.workouts.length === 0}
+        onDeleted={() => {
+          setList({ status: 'ok', workouts: [] })
+          setEditing(null)
+        }}
+        // Slettingen kan ha stoppet halvveis; vis det som faktisk ligger igjen.
+        onFailed={() => {
+          setList(loadWorkouts())
+        }}
+      />
     </main>
   )
 }
