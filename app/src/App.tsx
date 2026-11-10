@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { DeleteAllSection } from './DeleteAllSection'
 import { ExportSection } from './ExportSection'
+import { PrivacySection } from './PrivacySection'
 import { WorkoutForm } from './WorkoutForm'
 import { WorkoutList } from './WorkoutList'
 import type { Announcement, FocusTarget } from './WorkoutList'
@@ -64,6 +65,7 @@ export function App() {
           setList(loadWorkouts())
         }}
       />
+      <PrivacySection />
     </main>
   )
 }

@@ -51,6 +51,23 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Treningsdagbok' })).toBeInTheDocument()
   })
 
+  it('viser teksten om lagring og personvern som siste seksjon', () => {
+    render(<App />)
+    const region = screen.getByRole('region', { name: 'Lagring og personvern' })
+    expect(region).toHaveTextContent('lagres bare i denne nettleseren på denne enheten')
+    expect(screen.getByRole('main').lastElementChild).toBe(region)
+  })
+
+  it('viser teksten om lagring og personvern også når lagringen er utilgjengelig', () => {
+    vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+      throw new DOMException('Blokkert', 'SecurityError')
+    })
+    render(<App />)
+    expect(screen.getByRole('region', { name: 'Lagring og personvern' })).toHaveTextContent(
+      'Bruk eksport jevnlig som sikkerhetskopi.',
+    )
+  })
+
   it('viser lagrede økter ved oppstart', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ versjon: 1, okter: [stored] }))
     render(<App />)
