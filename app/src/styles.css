@@ -221,3 +221,8 @@ button.small {
   font-weight: 600;
   color: var(--success);
 }
+
+/* Melding som står under en knapp (Slett alle data) i stedet for over innholdet. */
+.notice-after {
+  margin: 0.75rem 0 0;
+}
