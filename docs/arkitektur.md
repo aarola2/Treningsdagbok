@@ -184,7 +184,15 @@ Bygget og testet:
 - Synlig fokus (3 px, kontrast ≥ 3:1). Små knapper i listen er minst 24 × 24 px.
 - E2E: axe (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`) i alle hovedflyter og med åpne dialoger; tastaturflyt for registrering, redigering, sletting, eksport og slett alle; 320 px uten horisontal rulling, også med WCAG 1.4.12-tekstavstand.
 
-Gjenstår før slipp (manuelt, #13): skjermleser (VoiceOver og NVDA), zoom 200 % og 400 %, kontrast i ekte nettleser, og andre nettlesere enn Chromium. Spesielt: **suksessmeldinger** som leses opp fordi de får fokus («… er slettet.», «… er oppdatert.», «Alle data er slettet.»), har ingen rolle. Feilmeldingene har `role="alert"`. Tilgjengelighetsgjennomgangen av #10 vurderte dette som middels og «mulig» (WCAG 4.1.3). Testes med skjermleser; må det rettes, gjelder det både `WorkoutList` og `DeleteAllSection`.
+Manuell kontroll av eier (#13, 2026-11-10, produksjonsbygget med oppdiktede data):
+
+- Bare tastatur: hele flyten (registrere, redigere, slette, eksportere, slette alle), synlig fokus, ingen fokusfelle, dialoger med fokus på «Avbryt» og Escape tilbake.
+- VoiceOver i Safari: ledetekster, feil ved tom innsending, «… er lagret.», dialoger, tabell med kolonneoverskrifter og regionen «Lagring og personvern».
+- **Suksessmeldingene** etter sletting og redigering («… er slettet.», «… er oppdatert.», «Alle data er slettet.») har ingen rolle og leses opp fordi de får fokus. VoiceOver leser dem opp, så det tidligere spørsmålet om WCAG 4.1.3 (tilgjengelighetsgjennomgangen av #10) er lukket uten endring. Andre skjermlesere er ikke testet; se «Kjente begrensninger».
+- Zoom 200 % og 400 %: brukbart, uten sideveis rulling.
+- Kontrast er beregnet fra fargene i `styles.css` (tekst ≥ 4,5:1, kanter og fokusring ≥ 3:1), ikke målt i nettleser.
+
+Kjent avvik akseptert av eier: en ny innsending av registreringsskjemaet før et felt er endret, gjør ingenting (se «Akseptert rest-risiko»).
 
 Når navigasjon kommer: `<header>`/`<nav>`, hopp-lenke og `document.title` per visning.
 
@@ -192,7 +200,7 @@ Når navigasjon kommer: `<header>`/`<nav>`, hopp-lenke og `document.title` per v
 
 ### Dataflyt og dataklasser
 
-- Treningsdata kan være helseopplysninger (GDPR art. 9). Data forlater aldri enheten: ingen backend, ingen telemetri, ingen tredjepartsressurser. Dette håndheves av CSP (`default-src 'self'`, `connect-src 'self'`, `frame-src 'none'` m.m.).
+- Treningsdata kan være helseopplysninger (GDPR art. 9). Data forlater aldri enheten: ingen backend, ingen telemetri, ingen tredjepartsressurser. Dette håndheves av CSP i produksjonsbygget (`app/vite.config.ts`): `default-src`, `script-src`, `style-src`, `font-src`, `connect-src`, `worker-src`, `base-uri` og `form-action` er `'self'`; `frame-src` og `object-src` er `'none'`. Eneste lemping er `img-src 'self' data:`, som tillater innebygde `data:`-bilder.
 - GitHub (Pages) behandler besøkendes IP-adresse og forespørselslogger som vert. Det står i appens personverntekst.
 
 ### Lagring og livssyklus
@@ -213,18 +221,21 @@ Når navigasjon kommer: `<header>`/`<nav>`, hopp-lenke og `document.title` per v
 | `QuotaExceededError` og utilgjengelig lagring | Egne feilkoder og norske meldinger; input og data beholdes | `src/workoutStorage.test.ts` («gir quota …», «gir unavailable …»), `src/WorkoutForm.test.tsx` («lagringsfeil»), `src/WorkoutList.test.tsx` («viser feilmelding ved full lagring»), `src/DeleteAllSection.test.tsx` (utilgjengelig og delvis sletting) |
 | Ingen logging av treningsdata til konsollen | Ingen `console`-kall i appkoden | `src/workoutStorage.test.ts` (spioner på `console.log/info/warn/error/debug` i alle testene i lagringsmodulen; komponenttestene har ikke slike spioner), e2e uten konsollfeil (`smoke`, `registrering`, `liste`, `eksport`, `slett-alle`) |
 | Tekst om hvor data lagres og risikoen for tap | `PrivacySection` | `src/PrivacySection.test.tsx`, `e2e/personvern.spec.ts` |
-| Ingen forespørsler utenfor egen origin | CSP og ingen eksterne ressurser | `e2e/eksport.spec.ts` og `e2e/slett-alle.spec.ts` (overvåker alle forespørsler); full kontroll i alle flyter gjøres i #13 |
+| Ingen forespørsler utenfor egen origin | CSP og ingen eksterne ressurser | `e2e/eksport.spec.ts` og `e2e/slett-alle.spec.ts` (overvåker alle forespørsler); kontrollert i alle flyter i #13 |
 
 ### Kjente begrensninger
 
 - **Andre åpne faner** har øktene i minnet. Etter «Slett alle data» eller endringer i én fane kan en annen fane skrive data tilbake ved neste lagring. Skrivingen leser lagringen rett før endringen, men det finnes ingen varsling mellom faner. Dialogen for «Slett alle data» ber brukeren lukke andre faner. Et varsel med `storage`-hendelsen er et utsatt forslag.
 - **Nettleserens egne kopier:** nettleseren kan beholde slettede data på disk en stund før den rydder. Appen kan ikke styre det.
 - **Angre** finnes ikke for sletting (utenfor scope).
+- **Ikke verifisert manuelt** (akseptert av eier 2026-11-11): NVDA og andre skjermlesere enn VoiceOver, nettleserne Firefox og Edge, mobil (iOS og Android), og kontrast målt i ekte nettleser, også i høykontrastmodus. Automatiske tester kjører bare i Chromium.
 
-### Akseptert rest-risiko (eier, 2026-10-30, oppdatert 2026-11-10)
+### Akseptert rest-risiko (eier, 2026-10-30, oppdatert 2026-11-11)
 
-- **Delt origin (S1):** alle GitHub Pages-prosjekter på kontoen deler origin `https://aarola2.github.io`. Andre prosjekter der kan lese og endre denne appens `localStorage`, og `script-src 'self'` tillater skript fra dem. Eier har akseptert risikoen med denne regelen: **ingen andre Pages-prosjekter på kontoen skal lagre personopplysninger eller laste tredjepartsskript, og det skal ikke finnes et brukernettsted (`aarola2.github.io`-repo) med service worker.** Nøkkelprefiks i `localStorage` er ingen beskyttelse; det gjelder også prefikset som «Slett alle data» bruker. Personverntekstens løfte om at data bare ligger i denne nettleseren, hviler på denne regelen. Vurderes på nytt før første produksjonsslipp (eget domene gir egen origin).
+- **Delt origin (S1):** alle GitHub Pages-prosjekter på kontoen deler origin `https://aarola2.github.io`. Andre prosjekter der kan lese og endre denne appens `localStorage`, og `script-src 'self'` tillater skript fra dem. Eier har akseptert risikoen med denne regelen: **ingen andre Pages-prosjekter på kontoen skal lagre personopplysninger eller laste tredjepartsskript, og det skal ikke finnes et brukernettsted (`aarola2.github.io`-repo) med service worker.** Nøkkelprefiks i `localStorage` er ingen beskyttelse; det gjelder også prefikset som «Slett alle data» bruker. Personverntekstens løfte om at data bare ligger i denne nettleseren, hviler på denne regelen. Eier har 2026-11-11 akseptert dette varig: det er et testprosjekt som blir på `aarola2.github.io`, det finnes ingen andre Pages-prosjekter som bryter regelen, og det skal ikke komme et brukernettsted med service worker. Flyttes appen til eget domene (egen origin), faller risikoen bort.
 - **CSP via meta og innramming (S4):** GitHub Pages kan ikke sette HTTP-headere. `frame-ancestors`, `report-uri`/`report-to` og `sandbox` virker ikke i meta, og `X-Frame-Options` kan ikke settes, så appen kan rammes inn (clickjacking). CSP-meta står først i `<head>` (verifisert i e2e). Utviklingsserveren kjører uten CSP.
   - Tiltak (#10, eiers beslutning A): «Slett alle data» skjules når `window.self !== window.top`. Kaster sjekken, skjules knappen også (fail-closed). Testet med komponenttester og med ekte iframe fra en annen origin i e2e.
   - Restrisiko akseptert av eier 2026-11-10: sjekken er klientside og ikke et fullverdig forsvar. Det som holder risikoen lav: nettlesere partisjonerer lagring i tredjeparts-iframes (forutsatt, ikke testet), en `sandbox`-iframe uten skript eller samme origin kan ikke kjøre appen, og sletting krever to klikk i en modal dialog med fokus på «Avbryt».
 - **gitleaks-binær (S3):** gitleaks-action laster ned binæren (festet til 8.30.1) fra GitHub Releases uten sjekksumkontroll.
+- **Sårbarhet i utviklingsverktøy (akseptert av eier 2026-11-11):** `npm audit` viser ett moderat funn, GHSA-g3hv-75wg-m249 (tjenestenekt i `minimatch`), som dras inn av `eslint` og `typescript-eslint`. Det gjelder bare lint-verktøyet, ikke appen: `npm audit --omit=dev` gir 0 funn, og CI stopper på høy og kritisk. `npm audit fix --force` ville nedgradert til eslint 9 og skal ikke brukes. Rettes når en versjon med rettet `minimatch` finnes.
+- **Gjentatt innsending gjør ingenting (tilgjengelighetsfunn T1, akseptert av eier 2026-11-11):** etter vellykket lagring står «… er lagret.» til et felt endres. Sender brukeren skjemaet på nytt før det (for eksempel Enter to ganger), skjer ingenting: ingen feilmelding, ingen ny melding og ingen fokusflytting (`WorkoutForm.tsx`, `handleSubmit`). Sperren hindrer dobbel lagring. Risikoen er lav fordi meldingen er synlig og er lest opp, men knappen kan virke død. Oppfølging i eget issue.
